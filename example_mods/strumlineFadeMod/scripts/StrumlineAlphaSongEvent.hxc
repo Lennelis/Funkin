@@ -1,0 +1,218 @@
+import flixel.tweens.FlxEase;
+import flixel.tweens.FlxTween;
+import funkin.Conductor;
+import funkin.modding.module.ModuleHandler;
+import funkin.play.PlayState;
+import funkin.play.event.SongEvent;
+import haxe.ds.StringMap;
+
+/**
+ * A chart event which tweens the opacity of a strumline.
+ *
+ * Place one event where the strumline should fade out, and a second one (with an
+ * alpha of 1) where it should tween back to normal opacity. Alternatively, use the
+ * "Hold" and "Fade Back In" fields to have a single event do the whole round trip.
+ *
+ * Example: fade the opponent's strumline to 20% over 4 steps, hold for 32 steps,
+ * then tween back to full opacity over 8 steps:
+ * ```
+ * {
+ *   'e': 'StrumlineAlpha',
+ *   'v': {
+ *     "alpha": 0.2,
+ *     "duration": 4,
+ *     "holdDuration": 32,
+ *     "fadeBackDuration": 8,
+ *     "ease": "quart",
+ *     "easeDir": "Out",
+ *     "strumline": "opponent"
+ *   }
+ * }
+ * ```
+ */
+class StrumlineAlphaSongEvent extends SongEvent
+{
+  var DEFAULT_ALPHA:Float = 0.2;
+  var DEFAULT_DURATION:Float = 4.0;
+  var DEFAULT_HOLD_DURATION:Float = -1.0;
+  var DEFAULT_FADE_BACK_DURATION:Float = 8.0;
+  var DEFAULT_STRUMLINE:String = 'opponent';
+
+  public function new(id:String)
+  {
+    super('StrumlineAlpha');
+  }
+
+  public function handleEvent(data):Void
+  {
+    // Does nothing if there is no PlayState.
+    if (PlayState.instance == null) return;
+
+    var alpha = data.getFloat('alpha');
+    if (alpha == null) alpha = DEFAULT_ALPHA;
+
+    var duration = data.getFloat('duration');
+    if (duration == null) duration = DEFAULT_DURATION;
+
+    var holdDuration = data.getFloat('holdDuration');
+    if (holdDuration == null) holdDuration = DEFAULT_HOLD_DURATION;
+
+    var fadeBackDuration = data.getFloat('fadeBackDuration');
+    if (fadeBackDuration == null) fadeBackDuration = DEFAULT_FADE_BACK_DURATION;
+
+    var strumline = data.getString('strumline');
+    if (strumline == null) strumline = DEFAULT_STRUMLINE;
+
+    var ease = buildEaseName(data.getString('ease'), data.getString('easeDir'));
+
+    // Instant changes ignore the duration.
+    if (ease == 'INSTANT') duration = 0;
+
+    var fadeModule = ModuleHandler.getModule('StrumlineFadeModule');
+    if (fadeModule == null)
+    {
+      trace('[StrumlineAlpha] StrumlineFadeModule is not loaded, ignoring this event.');
+      return;
+    }
+
+    if (holdDuration >= 0)
+    {
+      // Fade out, hold, then tween back to normal opacity, all from this one event.
+      fadeModule.fadeStrumline(strumline, alpha, duration, holdDuration, fadeBackDuration, ease);
+    }
+    else
+    {
+      // Just tween to the target alpha, and let a later event bring it back.
+      fadeModule.tweenStrumlineAlpha(strumline, alpha, duration, ease);
+    }
+  }
+
+  /**
+   * Combine an ease name and a direction into a function name from FlxEase.
+   * Eases which have no direction (like 'linear') are passed through untouched.
+   */
+  function buildEaseName(ease:String, easeDir:String):String
+  {
+    if (ease == null || ease == '') return 'linear';
+    if (ease == 'linear' || ease == 'INSTANT') return ease;
+    if (easeDir == null || easeDir == '') return ease + 'In';
+
+    return ease + easeDir;
+  }
+
+  public function getTitle():String
+  {
+    return 'Strumline Opacity';
+  }
+
+  /**
+   * ```
+   * {
+   *   'alpha': FLOAT, // The opacity to tween to.
+   *   'duration': FLOAT, // Duration of the tween, in steps.
+   *   'ease': ENUM, // Easing function.
+   *   'easeDir': ENUM, // Easing function direction (In, Out, In/Out).
+   *   'strumline': ENUM, // Which strumline to affect.
+   *   'holdDuration': FLOAT, // How long to hold before fading back in, in steps. Negative to never fade back in.
+   *   'fadeBackDuration': FLOAT, // Duration of the fade back in, in steps.
+   * }
+   * ```
+   */
+  public function getEventSchema():Dynamic
+  {
+    var easeKeys = new StringMap();
+    easeKeys.set('Linear', 'linear');
+    easeKeys.set('Instant (Ignores duration)', 'INSTANT');
+    easeKeys.set('Sine', 'sine');
+    easeKeys.set('Quad', 'quad');
+    easeKeys.set('Cube', 'cube');
+    easeKeys.set('Quart', 'quart');
+    easeKeys.set('Quint', 'quint');
+    easeKeys.set('Expo', 'expo');
+    easeKeys.set('Smooth Step', 'smoothStep');
+    easeKeys.set('Smoother Step', 'smootherStep');
+    easeKeys.set('Elastic', 'elastic');
+    easeKeys.set('Back', 'back');
+    easeKeys.set('Bounce', 'bounce');
+    easeKeys.set('Circ', 'circ');
+
+    var easeDirKeys = new StringMap();
+    easeDirKeys.set('In', 'In');
+    easeDirKeys.set('Out', 'Out');
+    easeDirKeys.set('In/Out', 'InOut');
+
+    var strumlineKeys = new StringMap();
+    strumlineKeys.set('Opponent', 'opponent');
+    strumlineKeys.set('Player', 'player');
+    strumlineKeys.set('Both', 'both');
+
+    // The schema is an array of fields; the chart editor builds a form out of it.
+    return [
+      {
+        name: 'alpha',
+        title: 'Opacity',
+        defaultValue: DEFAULT_ALPHA,
+        min: 0.0,
+        max: 1.0,
+        step: 0.05,
+        type: 'float'
+      },
+      {
+        name: 'duration',
+        title: 'Duration',
+        defaultValue: DEFAULT_DURATION,
+        min: 0.0,
+        step: 0.5,
+        type: 'float',
+        units: 'steps'
+      },
+      {
+        name: 'ease',
+        title: 'Easing Type',
+        defaultValue: 'linear',
+        type: 'enum',
+        keys: easeKeys
+      },
+      {
+        name: 'easeDir',
+        title: 'Easing Direction',
+        defaultValue: 'In',
+        type: 'enum',
+        keys: easeDirKeys
+      },
+      {
+        name: 'strumline',
+        title: 'Target Strumline',
+        defaultValue: DEFAULT_STRUMLINE,
+        type: 'enum',
+        keys: strumlineKeys
+      },
+      {
+        name: 'advanced',
+        title: 'Fade Back In',
+        type: 'frame',
+        collapsible: true,
+        children: [
+          {
+            name: 'holdDuration',
+            title: 'Hold',
+            defaultValue: DEFAULT_HOLD_DURATION,
+            min: -1.0,
+            step: 1.0,
+            type: 'float',
+            units: 'steps'
+          },
+          {
+            name: 'fadeBackDuration',
+            title: 'Fade Back In',
+            defaultValue: DEFAULT_FADE_BACK_DURATION,
+            min: 0.0,
+            step: 0.5,
+            type: 'float',
+            units: 'steps'
+          }
+        ]
+      }
+    ];
+  }
+}

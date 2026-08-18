@@ -1,0 +1,12 @@
+{
+  "title": "Strumline Fade Mod",
+  "description": "Fades the opponent's strumline out at a set point in a song, then tweens it back to normal opacity.",
+  "contributors": [
+    {
+      "name": "lennelis"
+    }
+  ],
+  "api_version": "0.8.0",
+  "mod_version": "1.0.0",
+  "license": "Apache-2.0"
+}

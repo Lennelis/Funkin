@@ -1,0 +1,325 @@
+import flixel.FlxG;
+import flixel.tweens.FlxEase;
+import flixel.tweens.FlxTween;
+import funkin.Conductor;
+import funkin.modding.module.Module;
+import funkin.play.PlayState;
+
+/**
+ * Fades a strumline out (and back in) at scripted points in a song.
+ *
+ * The `fadeCues` list below drives everything: each entry says which song to watch,
+ * which step of that song to fire on, how transparent the strumline should get,
+ * and how long the fade out / hold / fade back in should last.
+ *
+ * Other scripts (such as StrumlineAlphaSongEvent.hxc) can drive this module directly:
+ *
+ * ```haxe
+ * var fadeModule = ModuleHandler.getModule('StrumlineFadeModule');
+ * fadeModule.fadeStrumline('opponent', 0.2, 4, 32, 8, 'quartOut');
+ * fadeModule.tweenStrumlineAlpha('opponent', 1.0, 8, 'quartOut');
+ * ```
+ */
+class StrumlineFadeModule extends Module
+{
+  /**
+   * The alpha a strumline is returned to once a fade finishes.
+   */
+  var NORMAL_ALPHA:Float = 1.0;
+
+  /**
+   * The scripted fade points.
+   *
+   * - `song`: the song ID to watch (the folder name under `data/songs/`).
+   * - `difficulties`: only fire on these difficulties, or `null` for all of them.
+   * - `strumline`: 'opponent', 'player' or 'both'.
+   * - `step`: the step of the song the fade starts on (16 steps per measure in 4/4).
+   * - `targetAlpha`: how transparent the strumline gets (0.0 is invisible, 1.0 is normal).
+   * - `fadeOutSteps`: how long the fade to `targetAlpha` takes, in steps.
+   * - `holdSteps`: how long to stay faded before tweening back. Use -1 to stay faded
+   *   until something else (another cue, or a chart event) brings the strumline back.
+   * - `fadeInSteps`: how long the tween back to normal opacity takes, in steps.
+   * - `ease`: an easing function name from FlxEase, e.g. 'linear', 'quadOut', 'sineInOut'.
+   */
+  var fadeCues:Array<Dynamic> = [
+    {
+      song: 'bopeebo',
+      difficulties: null,
+      strumline: 'opponent',
+      step: 128,
+      targetAlpha: 0.2,
+      fadeOutSteps: 4,
+      holdSteps: 32,
+      fadeInSteps: 8,
+      ease: 'quartOut'
+    }
+  ];
+
+  /**
+   * The tween currently running on each strumline, indexed by slot
+   * (0 is the opponent, 1 is the player), so overlapping fades don't fight each other.
+   */
+  var activeTweens:Array<Dynamic> = [null, null];
+
+  /**
+   * The indices of the cues which already fired this attempt, so each cue only fires once.
+   */
+  var firedCues:Array<Int> = [];
+
+  public function new(moduleId:String)
+  {
+    super(moduleId, 1000);
+  }
+
+  function onStepHit(event):Void
+  {
+    // Step hits also fire in the menus, so make sure a song is actually playing.
+    if (!Std.isOfType(FlxG.state, PlayState)) return;
+    if (PlayState.instance == null || PlayState.instance.currentSong == null) return;
+
+    var songId:String = PlayState.instance.currentSong.id;
+    var difficulty:String = PlayState.instance.currentDifficulty;
+
+    for (i in 0...fadeCues.length)
+    {
+      if (firedCues.indexOf(i) != -1) continue;
+
+      var cue:Dynamic = fadeCues[i];
+      if (cue.song != songId) continue;
+      if (cue.difficulties != null && cue.difficulties.indexOf(difficulty) == -1) continue;
+
+      // Compare with `>=` rather than `==` so a cue still fires if the game lags past its step.
+      if (event.step < cue.step) continue;
+
+      firedCues.push(i);
+      fadeStrumline(cue.strumline, cue.targetAlpha, cue.fadeOutSteps, cue.holdSteps, cue.fadeInSteps, cue.ease);
+    }
+  }
+
+  /**
+   * Fade a strumline out, hold it there, then tween it back to normal opacity.
+   * @param target Which strumline to affect: 'opponent', 'player' or 'both'.
+   * @param targetAlpha The alpha to fade to (0.0 - 1.0).
+   * @param fadeOutSteps How long the fade out takes, in steps.
+   * @param holdSteps How long to stay faded, in steps. Pass a negative number to skip the fade back in.
+   * @param fadeInSteps How long the fade back in takes, in steps.
+   * @param ease The name of an easing function from FlxEase.
+   */
+  public function fadeStrumline(target:String, targetAlpha:Float, fadeOutSteps:Float, holdSteps:Float, fadeInSteps:Float, ease:String):Void
+  {
+    var slots:Array<Int> = getSlots(target);
+    if (slots.length == 0) return;
+
+    var easeFunction:Dynamic = resolveEase(ease);
+    var fadeOutSeconds:Float = stepsToSeconds(fadeOutSteps);
+    var holdSeconds:Float = stepsToSeconds(holdSteps);
+    var fadeInSeconds:Float = stepsToSeconds(fadeInSteps);
+    var normalAlpha:Float = NORMAL_ALPHA;
+
+    for (slot in slots)
+    {
+      // Keep these in locals so the callback below works with the right strumline.
+      var thisSlot:Int = slot;
+      var strumline:Dynamic = getStrumline(thisSlot);
+      var tweens:Array<Dynamic> = activeTweens;
+      if (strumline == null) continue;
+
+      var onFadedOut:Dynamic = null;
+      if (holdSteps >= 0)
+      {
+        onFadedOut = function(tween):Void {
+          // Hold at the faded alpha, then tween back to normal opacity.
+          tweens[thisSlot] = FlxTween.tween(strumline, {alpha: normalAlpha}, Math.max(fadeInSeconds, 0.001),
+            {
+              ease: easeFunction,
+              startDelay: Math.max(holdSeconds, 0.0),
+              onComplete: function(finishedTween):Void {
+                tweens[thisSlot] = null;
+              }
+            });
+        };
+      }
+
+      startTween(thisSlot, targetAlpha, fadeOutSeconds, easeFunction, 0.0, onFadedOut);
+    }
+  }
+
+  /**
+   * Tween a strumline to a given alpha, with no automatic fade back in.
+   * Handy for chart events, where the chart decides when the strumline comes back.
+   * @param target Which strumline to affect: 'opponent', 'player' or 'both'.
+   * @param targetAlpha The alpha to tween to (0.0 - 1.0).
+   * @param durationSteps How long the tween takes, in steps. Use 0 to snap instantly.
+   * @param ease The name of an easing function from FlxEase.
+   */
+  public function tweenStrumlineAlpha(target:String, targetAlpha:Float, durationSteps:Float, ease:String):Void
+  {
+    var slots:Array<Int> = getSlots(target);
+    if (slots.length == 0) return;
+
+    var easeFunction:Dynamic = resolveEase(ease);
+    var durationSeconds:Float = stepsToSeconds(durationSteps);
+
+    for (slot in slots)
+    {
+      if (durationSeconds <= 0)
+      {
+        cancelTween(slot);
+        var strumline:Dynamic = getStrumline(slot);
+        if (strumline != null) strumline.alpha = targetAlpha;
+      }
+      else
+      {
+        startTween(slot, targetAlpha, durationSeconds, easeFunction, 0.0, null);
+      }
+    }
+  }
+
+  /**
+   * Start a single alpha tween on a strumline, replacing whatever it was doing before.
+   */
+  function startTween(slot:Int, targetAlpha:Float, durationSeconds:Float, easeFunction:Dynamic, startDelay:Float, onComplete:Dynamic):Void
+  {
+    var strumline:Dynamic = getStrumline(slot);
+    if (strumline == null) return;
+
+    cancelTween(slot);
+
+    // Keep these in locals so the callback below doesn't have to reach back through `this`.
+    var thisSlot:Int = slot;
+    var tweens:Array<Dynamic> = activeTweens;
+
+    activeTweens[slot] = FlxTween.tween(strumline, {alpha: targetAlpha}, Math.max(durationSeconds, 0.001),
+      {
+        ease: easeFunction,
+        startDelay: Math.max(startDelay, 0.0),
+        onComplete: function(tween):Void {
+          tweens[thisSlot] = null;
+          if (onComplete != null) onComplete(tween);
+        }
+      });
+  }
+
+  /**
+   * Stop the tween running on a strumline, if there is one.
+   */
+  function cancelTween(slot:Int):Void
+  {
+    var tween:Dynamic = activeTweens[slot];
+    if (tween != null) tween.cancel();
+    activeTweens[slot] = null;
+  }
+
+  /**
+   * Stop every tween this module is running.
+   */
+  function cancelAllTweens():Void
+  {
+    for (slot in 0...activeTweens.length)
+    {
+      cancelTween(slot);
+    }
+  }
+
+  /**
+   * Resolve a strumline target name into the slots it covers.
+   */
+  function getSlots(target:String):Array<Int>
+  {
+    if (target == 'player') return [1];
+    if (target == 'both') return [0, 1];
+    return [0];
+  }
+
+  /**
+   * Retrieve the strumline for a slot: 0 is the opponent, 1 is the player.
+   */
+  function getStrumline(slot:Int):Dynamic
+  {
+    if (PlayState.instance == null) return null;
+
+    if (slot == 1) return PlayState.instance.playerStrumline;
+    return PlayState.instance.opponentStrumline;
+  }
+
+  /**
+   * Convert a length in steps into seconds, using the song's current BPM.
+   */
+  function stepsToSeconds(steps:Float):Float
+  {
+    if (steps <= 0) return 0.0;
+
+    return (Conductor.instance.stepLengthMs * steps) / 1000.0;
+  }
+
+  /**
+   * Look up an easing function by name, falling back to a linear ease.
+   */
+  function resolveEase(ease:String):Dynamic
+  {
+    if (ease == null || ease == '' || ease == 'linear') return FlxEase.linear;
+
+    var easeFunction:Dynamic = Reflect.field(FlxEase, ease);
+    if (easeFunction == null)
+    {
+      trace('[StrumlineFadeModule] Unknown ease function: ' + ease + ', falling back to linear.');
+      return FlxEase.linear;
+    }
+
+    return easeFunction;
+  }
+
+  /**
+   * Tweens keep running while the game is paused, so freeze them by hand.
+   */
+  function onPause(event):Void
+  {
+    for (slot in 0...activeTweens.length)
+    {
+      if (activeTweens[slot] != null) activeTweens[slot].active = false;
+    }
+  }
+
+  function onResume(event):Void
+  {
+    for (slot in 0...activeTweens.length)
+    {
+      if (activeTweens[slot] != null) activeTweens[slot].active = true;
+    }
+  }
+
+  function onSongStart(event):Void
+  {
+    reset();
+  }
+
+  function onSongRetry(event):Void
+  {
+    reset();
+  }
+
+  function onSongEnd(event):Void
+  {
+    reset();
+  }
+
+  function onDestroy(event):Void
+  {
+    reset();
+  }
+
+  /**
+   * Clear the tweens, restore the strumlines and let every cue fire again on the next attempt.
+   */
+  function reset():Void
+  {
+    cancelAllTweens();
+    firedCues = [];
+
+    if (PlayState.instance != null)
+    {
+      if (PlayState.instance.opponentStrumline != null) PlayState.instance.opponentStrumline.alpha = NORMAL_ALPHA;
+      if (PlayState.instance.playerStrumline != null) PlayState.instance.playerStrumline.alpha = NORMAL_ALPHA;
+    }
+  }
+}
