@@ -1,0 +1,12 @@
+{
+  "title": "Pico Singer Mod",
+  "description": "Adds Pico as a second singer, driven by a 'pico' note kind you place in the chart editor.",
+  "contributors": [
+    {
+      "name": "lennelis"
+    }
+  ],
+  "api_version": "0.8.0",
+  "mod_version": "1.0.0",
+  "license": "Apache-2.0"
+}

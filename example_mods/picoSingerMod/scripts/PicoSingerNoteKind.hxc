@@ -1,0 +1,46 @@
+import funkin.modding.module.ModuleHandler;
+import funkin.play.notes.notekind.NoteKind;
+
+/**
+ * A note kind that hands the note to Pico instead of the side's usual singer.
+ *
+ * Set a note's kind to `pico` in the chart editor and Boyfriend (or Dad, if it's
+ * an opponent note) stays quiet while Pico sings it. Works on either side.
+ */
+class PicoSingerNoteKind extends NoteKind
+{
+  public function new(noteKind:String)
+  {
+    // 'pico' is what the note kind is called in the chart editor.
+    // The `true` is `noanim`, which is what stops the usual singer from
+    // playing their own animation for this note.
+    super('pico', 'Pico Sings', null, [], true, '');
+  }
+
+  function onNoteHit(event):Void
+  {
+    singNote(event, false);
+  }
+
+  function onNoteMiss(event):Void
+  {
+    singNote(event, true);
+  }
+
+  function singNote(event, miss:Bool):Void
+  {
+    if (event.note == null) return;
+
+    var module = ModuleHandler.getModule('PicoSingerModule');
+    if (module == null) return;
+
+    var noteData = event.note.noteData;
+    if (noteData == null) return;
+
+    // Hold the animation for the length of a sustain, but not on a miss.
+    var sustainLength:Float = 0.0;
+    if (!miss && noteData.length > 0) sustainLength = noteData.length;
+
+    module.sing(noteData.getDirection(), miss, sustainLength);
+  }
+}

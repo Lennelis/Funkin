@@ -1,0 +1,207 @@
+import funkin.Conductor;
+import funkin.modding.module.Module;
+import funkin.play.PlayState;
+import funkin.play.character.CharacterDataParser;
+
+/**
+ * Puts Pico on the stage as a second singer, and sings with him on request.
+ *
+ * He's added as an `OTHER` character, which means the game idles and dances him
+ * but never makes him sing on his own. PicoSingerNoteKind.hxc is what tells him
+ * to sing, note by note.
+ *
+ * He only shows up in songs whose chart actually contains notes of the `pico`
+ * kind, so this mod is inert everywhere else.
+ */
+class PicoSingerModule extends Module
+{
+  /**
+   * Character IDs to try, in order. The first one that exists gets used.
+   * `pico-player` is the playable Pico; check your `data/characters/` folder
+   * if none of these match.
+   */
+  var CHARACTER_IDS:Array<String> = ['pico-player', 'pico-playable', 'pico'];
+
+  /**
+   * Where he stands, relative to Boyfriend.
+   */
+  var X_OFFSET:Float = 320.0;
+
+  var Y_OFFSET:Float = 0.0;
+
+  /**
+   * Multiplier on his own base scale.
+   */
+  var SCALE:Float = 1.0;
+
+  /**
+   * The note kind that makes him sing. Must match PicoSingerNoteKind.hxc.
+   */
+  var NOTE_KIND:String = 'pico';
+
+  /**
+   * The Pico currently on the stage, if any.
+   */
+  var pico:Dynamic = null;
+
+  /**
+   * Song position to hold the current sing animation until, for sustains.
+   * Negative means nothing is being held.
+   */
+  var singUntilMs:Float = -1.0;
+
+  public function new(moduleId:String)
+  {
+    super(moduleId);
+  }
+
+  function onSongLoaded(event):Void
+  {
+    pico = null;
+    singUntilMs = -1.0;
+
+    if (PlayState.instance == null || PlayState.instance.currentStage == null) return;
+
+    // Stages are cached and reused between songs, so he may already be standing
+    // there from a previous song. Hide him unless this chart wants him.
+    if (!chartUsesPico(event.notes))
+    {
+      var leftover:Dynamic = findExisting();
+      if (leftover != null) leftover.visible = false;
+      return;
+    }
+
+    pico = getOrAddPico();
+    if (pico != null) pico.visible = true;
+  }
+
+  /**
+   * Sing a note. Called by the note kind script.
+   * @param direction The note direction.
+   * @param miss Whether to play the miss animation.
+   * @param sustainLengthMs How long to hold the animation for, in ms. 0 for a tap.
+   */
+  public function sing(direction, miss:Bool, sustainLengthMs:Float):Void
+  {
+    if (pico == null || !pico.visible) return;
+
+    pico.playSingAnimation(direction, miss);
+    pico.holdTimer = 0;
+
+    if (sustainLengthMs > 0) singUntilMs = Conductor.instance.songPosition + sustainLengthMs;
+    else singUntilMs = -1.0;
+  }
+
+  function onUpdate(event):Void
+  {
+    if (pico == null || singUntilMs < 0) return;
+
+    if (Conductor.instance.songPosition >= singUntilMs)
+    {
+      singUntilMs = -1.0;
+      return;
+    }
+
+    // Characters that aren't BF drop back to idle after one beat of singing.
+    // Pinning holdTimer to zero holds the animation for the whole sustain.
+    pico.holdTimer = 0;
+  }
+
+  /**
+   * Whether this chart has any notes assigned to our note kind.
+   */
+  function chartUsesPico(notes):Bool
+  {
+    if (notes == null) return false;
+
+    for (note in notes)
+    {
+      if (note != null && note.kind == NOTE_KIND) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Find a Pico already added to the current stage by a previous song.
+   */
+  function findExisting():Dynamic
+  {
+    var stage:Dynamic = PlayState.instance.currentStage;
+
+    for (i in 0...CHARACTER_IDS.length)
+    {
+      var existing:Dynamic = stage.getCharacter(CHARACTER_IDS[i]);
+      if (existing != null) return existing;
+    }
+
+    return null;
+  }
+
+  function getOrAddPico():Dynamic
+  {
+    var stage:Dynamic = PlayState.instance.currentStage;
+
+    var existing:Dynamic = findExisting();
+    if (existing != null)
+    {
+      placeCharacter(existing);
+      return existing;
+    }
+
+    var character:Dynamic = null;
+
+    for (i in 0...CHARACTER_IDS.length)
+    {
+      character = CharacterDataParser.fetchCharacter(CHARACTER_IDS[i]);
+      if (character != null) break;
+    }
+
+    if (character == null)
+    {
+      trace('[PicoSinger] No Pico character found. Tried: ' + CHARACTER_IDS.join(', '));
+      return null;
+    }
+
+    // A freshly built character's type is already OTHER, so passing it straight
+    // back adds him without this script having to name the CharacterType enum.
+    // The stage stores extra characters under their own character ID.
+    stage.addCharacter(character, character.characterType);
+
+    placeCharacter(character);
+    stage.refresh();
+
+    return character;
+  }
+
+  /**
+   * Position him next to Boyfriend. Extra characters get no stage data of their
+   * own, so everything here would otherwise be left at defaults.
+   */
+  function placeCharacter(character:Dynamic):Void
+  {
+    var stage:Dynamic = PlayState.instance.currentStage;
+    var boyfriend:Dynamic = stage.getBoyfriend();
+    if (boyfriend == null) return;
+
+    character.x = boyfriend.x + X_OFFSET;
+    character.y = boyfriend.y + Y_OFFSET;
+    character.zIndex = boyfriend.zIndex - 1;
+    character.scrollFactor.set(boyfriend.scrollFactor.x, boyfriend.scrollFactor.y);
+    character.setScale(character.getBaseScale() * SCALE);
+    character.originalPosition.set(character.x, character.y);
+    character.resetCameraFocusPoint();
+  }
+
+  function onSongEnd(event):Void
+  {
+    pico = null;
+    singUntilMs = -1.0;
+  }
+
+  function onDestroy(event):Void
+  {
+    pico = null;
+    singUntilMs = -1.0;
+  }
+}
