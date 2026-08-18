@@ -13,8 +13,16 @@ Both are needed — the note kind talks to the module through `ModuleHandler`.
 ## Charting
 
 Open a chart, select a note, and set its **kind** to `pico` ("Pico Sings" in the list).
-That's it: the note scores and plays exactly as before, but the side's usual character
-stays idle while Pico sings it. It works on player notes and opponent notes alike.
+The side's usual character stays idle while Pico sings it. It works on both sides, but
+they behave differently on purpose:
+
+- **Opponent notes** are invisible and the strum never lights up, so it looks like Pico
+  is singing on his own with no strumline. Sustain trails and hold covers are hidden too.
+- **Player notes** are left completely alone — visible, hittable and scored as normal,
+  since you can't hit what you can't see. Pico sings them instead of Boyfriend.
+
+Set `GHOST_OPPONENT_NOTES` to `false` in `PicoSingerNoteKind.hxc` if you want opponent
+notes to show up like any other note.
 
 Pico only appears in songs whose chart contains at least one `pico` note, so the mod
 does nothing to every other song.
@@ -47,6 +55,12 @@ Two things get around it:
 
 ## Notes
 
+- Hiding opponent notes works by canceling the note hit event, which is what makes
+  `PlayState` skip `opponentStrumline.hitNote()` — the call that lights the strum up.
+  That call also cleans the note up, so the script kills the note and fixes up the hold
+  sprite itself, in the same order the engine does.
+- If a hidden hold note ends in the same lane where Dad is holding a real note, the
+  strum drops back to static a little early. Only noticeable if you chart them overlapping.
 - Sustains: non-BF characters drop back to idle after about a beat of singing, so the
   module pins `holdTimer` to zero for the length of a sustain to hold the animation.
 - Vocals are mixed per *side*, not per character (`playerVolume` / `opponentVolume`

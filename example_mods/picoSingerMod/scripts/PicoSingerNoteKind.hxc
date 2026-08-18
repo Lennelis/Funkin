@@ -1,14 +1,25 @@
+import funkin.Conductor;
 import funkin.modding.module.ModuleHandler;
+import funkin.play.PlayState;
 import funkin.play.notes.notekind.NoteKind;
 
 /**
  * A note kind that hands the note to Pico instead of the side's usual singer.
  *
  * Set a note's kind to `pico` in the chart editor and Boyfriend (or Dad, if it's
- * an opponent note) stays quiet while Pico sings it. Works on either side.
+ * an opponent note) stays quiet while Pico sings it.
+ *
+ * On the opponent's side the note is also invisible and the strum never lights
+ * up, so it reads as Pico singing on his own with no strumline of his own.
+ * Player notes are left alone, since you have to be able to see and hit those.
  */
 class PicoSingerNoteKind extends NoteKind
 {
+  /**
+   * Set to false to make opponent notes behave normally (visible, strums light up).
+   */
+  var GHOST_OPPONENT_NOTES:Bool = true;
+
   public function new(noteKind:String)
   {
     // 'pico' is what the note kind is called in the chart editor.
@@ -17,14 +28,89 @@ class PicoSingerNoteKind extends NoteKind
     super('pico', 'Pico Sings', null, [], true, '');
   }
 
+  /**
+   * Called as soon as the note is built, before it's ever drawn, so there's no flicker.
+   */
+  function onNoteIncoming(event):Void
+  {
+    if (!isGhostNote(event)) return;
+
+    var note = event.note;
+
+    note.visible = false;
+    note.alpha = 0;
+
+    // The strumline forces hold trails visible again every frame while they're
+    // being rendered, so alpha is the part that sticks.
+    if (note.holdNoteSprite != null)
+    {
+      note.holdNoteSprite.visible = false;
+      note.holdNoteSprite.alpha = 0;
+    }
+  }
+
   function onNoteHit(event):Void
   {
     singNote(event, false);
+
+    if (!isGhostNote(event)) return;
+
+    // PlayState skips `opponentStrumline.hitNote()` when this event is canceled,
+    // and that call is what lights up the strum. It's also what cleans the note
+    // up, so everything below is that cleanup done by hand.
+    event.cancelEvent();
+
+    restoreLegacyVocals();
+
+    var note = event.note;
+    var strumline = PlayState.instance.opponentStrumline;
+    if (strumline == null) return;
+
+    note.hasBeenHit = true;
+    strumline.killNote(note);
+
+    // killNote marks the hold as missed, so mark it hit afterwards, in the same
+    // order the engine does it.
+    if (note.holdNoteSprite != null)
+    {
+      note.holdNoteSprite.hitNote = true;
+      note.holdNoteSprite.missedNote = false;
+      note.holdNoteSprite.alpha = 0;
+
+      note.holdNoteSprite.sustainLength = Math.min(note.holdNoteSprite.fullSustainLength,
+        (note.holdNoteSprite.strumTime + note.holdNoteSprite.fullSustainLength) - Conductor.instance.songPosition);
+    }
   }
 
   function onNoteMiss(event):Void
   {
     singNote(event, true);
+  }
+
+  /**
+   * Whether this note should be hidden: opponent side only, and only if enabled.
+   */
+  function isGhostNote(event):Bool
+  {
+    if (!GHOST_OPPONENT_NOTES) return false;
+    if (PlayState.instance == null) return false;
+    if (event.note == null || event.note.noteData == null) return false;
+
+    // Player notes stay visible and hittable.
+    return !event.note.noteData.getMustHitNote();
+  }
+
+  /**
+   * Charts using the old single `Voices.ogg` restore vocal volume on every
+   * opponent note hit. Canceling the event skips that, so do it here.
+   */
+  function restoreLegacyVocals():Void
+  {
+    var vocals = PlayState.instance.vocals;
+    if (vocals == null || !vocals.legacyVoiceSystem) return;
+
+    if (vocals.legacyVoiceUsesPlayer) vocals.playerVolume = PlayState.instance.playerVocalsVolume;
+    else vocals.opponentVolume = PlayState.instance.opponentVocalsVolume;
   }
 
   function singNote(event, miss:Bool):Void
