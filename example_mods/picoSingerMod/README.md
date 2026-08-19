@@ -59,8 +59,13 @@ Two things get around it:
   `PlayState` skip `opponentStrumline.hitNote()` — the call that lights the strum up.
   That call also cleans the note up, so the script kills the note and fixes up the hold
   sprite itself, in the same order the engine does.
-- If a hidden hold note ends in the same lane where Dad is holding a real note, the
-  strum drops back to static a little early. Only noticeable if you chart them overlapping.
+- Hidden sustains have their trail removed outright, not just hidden: while a hold is
+  flagged as being hit, `Strumline.updateNotes` calls `holdConfirm()` on its direction
+  every frame, which keeps the strum lit for the whole sustain. Pico still sings for the
+  charted length, because the module holds his animation on its own timer.
+- Extra characters get no slot-based flip from the stage (the BF slot inverts `flipX`,
+  Dad and GF don't), so the module applies Boyfriend's flip by hand. Set
+  `FACE_LIKE_BOYFRIEND` to `false` if your character faces the wrong way.
 - Sustains: non-BF characters drop back to idle after about a beat of singing, so the
   module pins `holdTimer` to zero for the length of a sustain to hold the animation.
 - Vocals are mixed per *side*, not per character (`playerVolume` / `opponentVolume`

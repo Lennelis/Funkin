@@ -35,6 +35,12 @@ class PicoSingerModule extends Module
   var SCALE:Float = 1.0;
 
   /**
+   * Whether he faces the way a character in Boyfriend's slot faces.
+   * Set to false if he ends up facing the wrong way.
+   */
+  var FACE_LIKE_BOYFRIEND:Bool = true;
+
+  /**
    * The note kind that makes him sing. Must match PicoSingerNoteKind.hxc.
    */
   var NOTE_KIND:String = 'pico';
@@ -183,6 +189,12 @@ class PicoSingerModule extends Module
     var stage:Dynamic = PlayState.instance.currentStage;
     var boyfriend:Dynamic = stage.getBoyfriend();
     if (boyfriend == null) return;
+
+    // The stage flips characters depending on which slot they're in: the BF slot
+    // inverts `flipX`, the Dad and GF slots don't. Extra characters get neither,
+    // so a player character like Pico ends up facing backwards without this.
+    if (FACE_LIKE_BOYFRIEND) character.flipX = !character.getDataFlipX();
+    else character.flipX = character.getDataFlipX();
 
     character.x = boyfriend.x + X_OFFSET;
     character.y = boyfriend.y + Y_OFFSET;

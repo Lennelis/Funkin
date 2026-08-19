@@ -40,12 +40,18 @@ class PicoSingerNoteKind extends NoteKind
     note.visible = false;
     note.alpha = 0;
 
-    // The strumline forces hold trails visible again every frame while they're
-    // being rendered, so alpha is the part that sticks.
+    // Drop the sustain trail entirely rather than just hiding it. While a hold is
+    // marked as being hit, `Strumline.updateNotes` calls `holdConfirm()` on its
+    // direction every single frame, which is what keeps the strum lit for the whole
+    // sustain. No trail, no hold, no glow.
+    //
+    // The sustain still reads correctly: the module holds Pico's sing animation on
+    // its own timer, using the note's charted length.
     if (note.holdNoteSprite != null)
     {
       note.holdNoteSprite.visible = false;
-      note.holdNoteSprite.alpha = 0;
+      note.holdNoteSprite.kill();
+      note.holdNoteSprite = null;
     }
   }
 
@@ -69,8 +75,9 @@ class PicoSingerNoteKind extends NoteKind
     note.hasBeenHit = true;
     strumline.killNote(note);
 
-    // killNote marks the hold as missed, so mark it hit afterwards, in the same
-    // order the engine does it.
+    // Ghost notes lose their trail in onNoteIncoming, so this is only a fallback
+    // for a note that somehow still has one. killNote marks the hold as missed, so
+    // mark it hit afterwards, in the same order the engine does it.
     if (note.holdNoteSprite != null)
     {
       note.holdNoteSprite.hitNote = true;
