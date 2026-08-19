@@ -7,6 +7,7 @@ triggered from the chart.
 | --- | --- |
 | `scripts/BadAppleModule.hxc` | The effect itself. Shades the characters, tints the stage, and puts everything back. |
 | `scripts/BadAppleSongEvent.hxc` | A `BadApple` chart event, so you can turn it on and off at points in a song. |
+| `scripts/DadBattleBadAppleTest.hxc` | A test script: fires the effect at the start of Dad Battle with a different color per character. Delete it when you're done. |
 
 ## Charting
 
@@ -37,6 +38,17 @@ Colors are `0xAARRGGBB`, so keep the `FF` on the front.
   `color` tweened to black, and the game camera's background color goes black underneath.
   Tinting rather than hiding means the effect can fade, and means nothing has to know
   which props were visible in the first place.
+
+## Per-character colors
+
+`setBadApple` gives everyone the same color, but the shader it installs is exposed, so
+you can repoint any character at another color afterwards:
+
+```haxe
+PlayState.instance.currentStage.getDad().shader.col = 0xFFC3A6FF;
+```
+
+`DadBattleBadAppleTest.hxc` does exactly this for all three characters.
 
 ## Notes
 

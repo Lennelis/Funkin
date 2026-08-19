@@ -1,0 +1,72 @@
+import funkin.modding.module.Module;
+import funkin.modding.module.ModuleHandler;
+import funkin.play.PlayState;
+
+/**
+ * Test script: turns on the Bad Apple effect at the start of Dad Battle, with a
+ * different silhouette color per character.
+ *
+ * `setBadApple` gives every character the same color, so this recolors them
+ * afterwards through the PureColor shader the module installed on each one.
+ *
+ * Delete this file when you're done testing.
+ */
+class DadBattleBadAppleTest extends Module
+{
+  var SONG_ID:String = 'dadbattle';
+
+  /**
+   * How long the stage takes to fade to black. 0 snaps instantly.
+   */
+  var FADE_SECONDS:Float = 0.5;
+
+  var DAD_COLOR:Int = 0xFFC3A6FF; // Light purple.
+  var GF_COLOR:Int = 0xFFDE3163; // Cherry.
+  var BF_COLOR:Int = 0xFF00FFFF; // Cyan.
+
+  public function new(moduleId:String)
+  {
+    super(moduleId);
+  }
+
+  function onSongStart(event):Void
+  {
+    if (PlayState.instance == null || PlayState.instance.currentSong == null) return;
+    if (PlayState.instance.currentSong.id != SONG_ID) return;
+
+    var badApple = ModuleHandler.getModule('BadAppleModule');
+    if (badApple == null)
+    {
+      trace('[BadAppleTest] BadAppleModule is not loaded.');
+      return;
+    }
+
+    // Silhouette everyone, then give each character their own color.
+    badApple.setBadApple(true, BF_COLOR, FADE_SECONDS);
+
+    var stage:Dynamic = PlayState.instance.currentStage;
+    if (stage == null) return;
+
+    recolor(stage.getDad(), DAD_COLOR);
+    recolor(stage.getGirlfriend(), GF_COLOR);
+    recolor(stage.getBoyfriend(), BF_COLOR);
+  }
+
+  /**
+   * Repoint one character's silhouette shader at a different color.
+   */
+  function recolor(character:Dynamic, color:Int):Void
+  {
+    if (character == null || character.shader == null) return;
+
+    // Only PureColor shaders have `col`; anything else is left alone.
+    try
+    {
+      character.shader.col = color;
+    }
+    catch (e:Dynamic)
+    {
+      trace('[BadAppleTest] Could not recolor ' + character.characterId);
+    }
+  }
+}
