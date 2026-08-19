@@ -1,0 +1,191 @@
+import flixel.tweens.FlxTween;
+import funkin.graphics.shaders.PureColor;
+import funkin.modding.module.Module;
+import funkin.play.PlayState;
+import funkin.play.character.BaseCharacter;
+
+/**
+ * The "Bad Apple" effect: the stage goes black and every character becomes a
+ * solid colored silhouette.
+ *
+ * Stage props are tinted to black rather than hidden, so the effect can fade in
+ * and out and everything goes back to normal afterwards. Characters get the
+ * game's own PureColor shader, which replaces every visible pixel with a flat
+ * color and keeps the alpha, so their outline and animation are untouched.
+ *
+ * Drive it from the chart with BadAppleSongEvent.hxc, or from another script:
+ *
+ * ```haxe
+ * var badApple = ModuleHandler.getModule('BadAppleModule');
+ * badApple.setBadApple(true, 0xFFFFFFFF, 0.5);
+ * badApple.setBadApple(false, 0xFFFFFFFF, 0.5);
+ * ```
+ */
+class BadAppleModule extends Module
+{
+  /**
+   * The silhouette color used when nothing else asks for one.
+   */
+  var DEFAULT_COLOR:Int = 0xFFFFFFFF;
+
+  /**
+   * Whether the effect is currently on.
+   */
+  var active:Bool = false;
+
+  /**
+   * The characters we've shaded, and the shader each one had beforehand.
+   */
+  var shadedCharacters:Array<Dynamic> = [];
+
+  var originalShaders:Array<Dynamic> = [];
+
+  /**
+   * The props we've tinted, and the color each one had beforehand.
+   */
+  var tintedProps:Array<Dynamic> = [];
+
+  var originalColors:Array<Int> = [];
+
+  /**
+   * The camera background color from before the effect started.
+   */
+  var originalBgColor:Int = 0;
+
+  public function new(moduleId:String)
+  {
+    super(moduleId);
+  }
+
+  /**
+   * Turn the effect on or off.
+   * @param enabled True for silhouettes, false to go back to normal.
+   * @param color The silhouette color, as 0xAARRGGBB. Ignored when disabling.
+   * @param durationSeconds How long the stage takes to fade to (or back from) black.
+   */
+  public function setBadApple(enabled:Bool, color:Int, durationSeconds:Float):Void
+  {
+    if (PlayState.instance == null || PlayState.instance.currentStage == null) return;
+    if (enabled == active) return;
+
+    if (enabled) enable(color, durationSeconds);
+    else disable(durationSeconds);
+  }
+
+  function enable(color:Int, durationSeconds:Float):Void
+  {
+    active = true;
+
+    var stage:Dynamic = PlayState.instance.currentStage;
+
+    originalBgColor = PlayState.instance.camGame.bgColor;
+    PlayState.instance.camGame.bgColor = 0xFF000000;
+
+    shadedCharacters = [];
+    originalShaders = [];
+    tintedProps = [];
+    originalColors = [];
+
+    for (member in stage.members)
+    {
+      if (member == null) continue;
+
+      if (Std.isOfType(member, BaseCharacter))
+      {
+        // Characters become flat silhouettes.
+        shadedCharacters.push(member);
+        originalShaders.push(member.shader);
+
+        var silhouette = new PureColor(color);
+        silhouette.colorSet = true;
+        member.shader = silhouette;
+      }
+      else
+      {
+        // Everything else on the stage fades to black.
+        tintedProps.push(member);
+        originalColors.push(member.color);
+
+        tintProp(member, 0xFF000000, durationSeconds);
+      }
+    }
+  }
+
+  function disable(durationSeconds:Float):Void
+  {
+    active = false;
+
+    // The state may already be gone if this is cleanup on song end.
+    if (PlayState.instance != null && PlayState.instance.camGame != null) PlayState.instance.camGame.bgColor = originalBgColor;
+
+    for (i in 0...shadedCharacters.length)
+    {
+      var character:Dynamic = shadedCharacters[i];
+      if (character != null) character.shader = originalShaders[i];
+    }
+
+    for (i in 0...tintedProps.length)
+    {
+      var prop:Dynamic = tintedProps[i];
+      if (prop != null) tintProp(prop, originalColors[i], durationSeconds);
+    }
+
+    shadedCharacters = [];
+    originalShaders = [];
+    tintedProps = [];
+    originalColors = [];
+  }
+
+  /**
+   * Tint a prop, either instantly or over time.
+   */
+  function tintProp(prop:Dynamic, color:Int, durationSeconds:Float):Void
+  {
+    FlxTween.cancelTweensOf(prop);
+
+    if (durationSeconds <= 0)
+    {
+      prop.color = color;
+      return;
+    }
+
+    FlxTween.color(prop, durationSeconds, prop.color, color);
+  }
+
+  /**
+   * Put everything back, without tweening, and forget what we were tracking.
+   * The stage is cached and reused, so leaving a prop black would follow you
+   * into the next song.
+   */
+  function restore():Void
+  {
+    if (!active) return;
+
+    disable(0.0);
+  }
+
+  function onSongLoaded(event):Void
+  {
+    restore();
+  }
+
+  function onSongRetry(event):Void
+  {
+    restore();
+  }
+
+  function onSongEnd(event):Void
+  {
+    restore();
+  }
+
+  function onGameOver(event):Void
+  {
+    restore();
+  }
+
+  function onDestroy(event):Void
+  {
+    restore();
+  }
+}

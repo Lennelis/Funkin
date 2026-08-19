@@ -1,0 +1,12 @@
+{
+  "title": "Bad Apple Mod",
+  "description": "Blacks out the stage and turns the characters into solid colored silhouettes, triggered from the chart.",
+  "contributors": [
+    {
+      "name": "lennelis"
+    }
+  ],
+  "api_version": "0.8.0",
+  "mod_version": "1.0.0",
+  "license": "Apache-2.0"
+}

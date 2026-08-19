@@ -1,0 +1,113 @@
+import funkin.Conductor;
+import funkin.modding.module.ModuleHandler;
+import funkin.play.PlayState;
+import funkin.play.event.SongEvent;
+import haxe.ds.StringMap;
+
+/**
+ * A chart event which turns the Bad Apple effect on or off.
+ *
+ * Place one where the stage should black out, and another where it should come
+ * back. Example:
+ * ```
+ * {
+ *   'e': 'BadApple',
+ *   'v': {
+ *     "enabled": true,
+ *     "color": "0xFFFFFFFF",
+ *     "duration": 4
+ *   }
+ * }
+ * ```
+ */
+class BadAppleSongEvent extends SongEvent
+{
+  var DEFAULT_COLOR:String = '0xFFFFFFFF';
+  var DEFAULT_DURATION:Float = 4.0;
+
+  public function new(id:String)
+  {
+    super('BadApple');
+  }
+
+  public function handleEvent(data):Void
+  {
+    if (PlayState.instance == null) return;
+
+    var enabled = data.getBool('enabled');
+    if (enabled == null) enabled = true;
+
+    var colorString = data.getString('color');
+    if (colorString == null || colorString == '') colorString = DEFAULT_COLOR;
+
+    var color = Std.parseInt(colorString);
+    if (color == null) color = Std.parseInt(DEFAULT_COLOR);
+
+    var duration = data.getFloat('duration');
+    if (duration == null) duration = DEFAULT_DURATION;
+
+    // Durations are charted in steps, so they stay in time with the music.
+    var durationSeconds:Float = (Conductor.instance.stepLengthMs * duration) / 1000.0;
+
+    var badApple = ModuleHandler.getModule('BadAppleModule');
+    if (badApple == null)
+    {
+      trace('[BadApple] BadAppleModule is not loaded, ignoring this event.');
+      return;
+    }
+
+    badApple.setBadApple(enabled, color, durationSeconds);
+  }
+
+  public function getTitle():String
+  {
+    return 'Bad Apple';
+  }
+
+  /**
+   * ```
+   * {
+   *   'enabled': BOOL, // On or off.
+   *   'color': ENUM, // Silhouette color.
+   *   'duration': FLOAT, // Fade length in steps.
+   * }
+   * ```
+   */
+  public function getEventSchema():Dynamic
+  {
+    var colorKeys = new StringMap();
+    colorKeys.set('White', '0xFFFFFFFF');
+    colorKeys.set('Black', '0xFF000000');
+    colorKeys.set('Red', '0xFFFF0000');
+    colorKeys.set('Green', '0xFF00FF00');
+    colorKeys.set('Blue', '0xFF0000FF');
+    colorKeys.set('Yellow', '0xFFFFFF00');
+    colorKeys.set('Cyan', '0xFF00FFFF');
+    colorKeys.set('Magenta', '0xFFFF00FF');
+
+    return [
+      {
+        name: 'enabled',
+        title: 'Enabled',
+        defaultValue: true,
+        type: 'bool'
+      },
+      {
+        name: 'color',
+        title: 'Silhouette Color',
+        defaultValue: DEFAULT_COLOR,
+        type: 'enum',
+        keys: colorKeys
+      },
+      {
+        name: 'duration',
+        title: 'Fade Duration',
+        defaultValue: DEFAULT_DURATION,
+        min: 0.0,
+        step: 0.5,
+        type: 'float',
+        units: 'steps'
+      }
+    ];
+  }
+}
