@@ -1,0 +1,156 @@
+import flixel.FlxG;
+import funkin.modding.module.Module;
+import funkin.play.PlayState;
+
+/**
+ * Plays songs faster or slower.
+ *
+ * The rate is applied as pitch on the instrumental and the vocals. The Conductor
+ * reads its position straight from the instrumental's playhead, so notes, events
+ * and beat hits all follow the new speed on their own.
+ *
+ * `SCALE_ANIMATIONS` additionally scales flixel's global time, so character
+ * animations, tweens and timers run at the same speed as the music instead of
+ * lagging behind it at high rates.
+ */
+class PlaybackRateModule extends Module
+{
+  /**
+   * The rate used for songs with no entry in SONG_RATES.
+   * 1.0 is normal, 1.5 is half again as fast, 0.75 is slower.
+   */
+  var DEFAULT_RATE:Float = 1.0;
+
+  /**
+   * Per-song overrides. `song` is the song ID, i.e. the folder name in `data/songs/`.
+   */
+  var SONG_RATES:Array<Dynamic> = [
+    {
+      song: 'bopeebo',
+      rate: 1.2
+    }
+  ];
+
+  /**
+   * How far the rate is allowed to go. Very low rates can stall the song and very
+   * high ones outrun the note rendering.
+   */
+  var MIN_RATE:Float = 0.5;
+
+  var MAX_RATE:Float = 2.0;
+
+  /**
+   * Whether to speed animations and tweens up to match. Turn this off if you only
+   * want the audio and note speed to change.
+   */
+  var SCALE_ANIMATIONS:Bool = true;
+
+  /**
+   * Whether to stop a modified run from counting as a high score. Leave this on
+   * unless you want rate-boosted scores in your save file.
+   */
+  var INVALIDATE_SCORE:Bool = true;
+
+  /**
+   * The rate currently applied, or 1.0 when nothing is applied.
+   */
+  var currentRate:Float = 1.0;
+
+  public function new(moduleId:String)
+  {
+    super(moduleId);
+  }
+
+  function onCountdownStart(event):Void
+  {
+    if (PlayState.instance == null || PlayState.instance.currentSong == null) return;
+
+    // Set the rate before the song starts so the countdown runs at the same speed.
+    setRate(getRateForSong(PlayState.instance.currentSong.id));
+  }
+
+  function onSongStart(event):Void
+  {
+    // The instrumental starts here, so make sure the pitch took.
+    if (currentRate != 1.0) applyToAudio(currentRate);
+  }
+
+  /**
+   * Change the playback rate. Safe to call mid-song, though the pitch change is
+   * audible as a small jump.
+   * @param rate 1.0 is normal speed.
+   */
+  public function setRate(rate:Float):Void
+  {
+    if (PlayState.instance == null) return;
+
+    if (rate < MIN_RATE) rate = MIN_RATE;
+    if (rate > MAX_RATE) rate = MAX_RATE;
+
+    currentRate = rate;
+
+    applyToAudio(rate);
+
+    if (SCALE_ANIMATIONS) FlxG.timeScale = rate;
+
+    if (INVALIDATE_SCORE && rate != 1.0 && PlayState.instance.currentSong != null)
+    {
+      // Same flag the chart editor uses to keep test runs out of the save file.
+      PlayState.instance.currentSong.validScore = false;
+    }
+  }
+
+  /**
+   * The rate this song should run at.
+   */
+  function getRateForSong(songId:String):Float
+  {
+    for (entry in SONG_RATES)
+    {
+      if (entry != null && entry.song == songId) return entry.rate;
+    }
+
+    return DEFAULT_RATE;
+  }
+
+  function applyToAudio(rate:Float):Void
+  {
+    if (FlxG.sound.music != null) FlxG.sound.music.pitch = rate;
+
+    if (PlayState.instance != null && PlayState.instance.vocals != null) PlayState.instance.vocals.pitch = rate;
+  }
+
+  /**
+   * Put the speed back. Flixel's time scale is global, so leaving it changed would
+   * follow you into the menus.
+   */
+  function restore():Void
+  {
+    currentRate = 1.0;
+
+    FlxG.timeScale = 1.0;
+
+    if (FlxG.sound.music != null) FlxG.sound.music.pitch = 1.0;
+  }
+
+  function onSongEnd(event):Void
+  {
+    restore();
+  }
+
+  function onGameOver(event):Void
+  {
+    restore();
+  }
+
+  function onStateChangeEnd(event):Void
+  {
+    // Covers backing out of a song, which doesn't fire onSongEnd.
+    if (PlayState.instance == null || !Std.isOfType(FlxG.state, PlayState)) restore();
+  }
+
+  function onDestroy(event):Void
+  {
+    restore();
+  }
+}

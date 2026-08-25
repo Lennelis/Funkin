@@ -1,0 +1,12 @@
+{
+  "title": "Playback Rate Mod",
+  "description": "Play songs faster or slower, globally or per song.",
+  "contributors": [
+    {
+      "name": "lennelis"
+    }
+  ],
+  "api_version": "0.8.0",
+  "mod_version": "1.0.0",
+  "license": "Apache-2.0"
+}
