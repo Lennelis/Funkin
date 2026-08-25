@@ -4,7 +4,11 @@ import funkin.ui.ScriptedMusicBeatState;
 import funkin.ui.options.OptionsState;
 
 /**
- * Adds a CHARACTER EDITOR entry to the Options menu.
+ * Adds a CHARACTER EDITOR entry to the Options menu, directly below PREFERENCES.
+ *
+ * `OptionsMenu.createItem` always appends, which puts the entry at the bottom of
+ * the list where it can be out of reach, so this moves it up afterwards and
+ * re-lays out the menu.
  */
 class CharacterEditorOptions extends Module
 {
@@ -12,6 +16,20 @@ class CharacterEditorOptions extends Module
    * The class name of the editor state, as Polymod registered it.
    */
   var EDITOR_CLASS:String = 'CharacterEditorState';
+
+  /**
+   * The entry this one is placed after.
+   */
+  var ANCHOR_ITEM:String = 'PREFERENCES';
+
+  var LABEL:String = 'CHARACTER EDITOR';
+
+  /**
+   * Matches OptionsMenu.createItem's own spacing.
+   */
+  var ITEM_SPACING:Float = 100.0;
+
+  var ITEM_START_Y:Float = 100.0;
 
   public function new(moduleId:String)
   {
@@ -38,10 +56,58 @@ class CharacterEditorOptions extends Module
 
     if (page == null) return;
 
-    // OptionsMenu.createItem handles positioning and centering for us.
-    page.createItem('CHARACTER EDITOR', function() {
+    // OptionsMenu.createItem handles the callback wiring; it just appends.
+    var item:Dynamic = page.createItem(LABEL, function() {
       openEditor();
     }, false);
+
+    moveBelowAnchor(page, item);
+  }
+
+  /**
+   * Move the new entry up to sit right under the anchor, then reposition
+   * everything. Menu navigation follows `members` order, so moving it there
+   * moves it for both the display and the selection order.
+   */
+  function moveBelowAnchor(page:Dynamic, item:Dynamic):Void
+  {
+    if (item == null) return;
+
+    var list:Dynamic = page.items;
+    if (list == null) return;
+
+    var members:Array<Dynamic> = list.members;
+    if (members == null) return;
+
+    var target:Int = 1;
+
+    var anchor:Dynamic = list.getItem(ANCHOR_ITEM);
+    if (anchor != null)
+    {
+      var anchorIndex:Int = members.indexOf(anchor);
+      if (anchorIndex >= 0) target = anchorIndex + 1;
+    }
+
+    members.remove(item);
+
+    if (target > members.length) target = members.length;
+    members.insert(target, item);
+
+    layout(members);
+  }
+
+  function layout(members:Array<Dynamic>):Void
+  {
+    for (i in 0...members.length)
+    {
+      var entry:Dynamic = members[i];
+      if (entry == null) continue;
+
+      entry.y = ITEM_START_Y + (i * ITEM_SPACING);
+
+      // The menu centres its items; screenCenter needs an enum, so do it by hand.
+      entry.x = (FlxG.width - entry.width) / 2;
+    }
   }
 
   function openEditor():Void
