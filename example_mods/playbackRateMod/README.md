@@ -1,55 +1,62 @@
 # Playback Rate Mod
 
-Plays songs faster or slower — globally, or per song.
+Adds a playback rate selector to Freeplay, under the difficulty. Whatever you pick
+applies to every song until you change it.
 
-`scripts/PlaybackRateModule.hxc` is the whole mod.
+| Script | What it does |
+| --- | --- |
+| `scripts/FreeplayRateSelector.hxc` | The Freeplay control. Writes the rate to the save file. |
+| `scripts/PlaybackRateModule.hxc` | Reads it when a song starts and applies it. |
 
-## Setting it up
+## Using it
 
-At the top of the script:
+In Freeplay, under the difficulty, you'll see `<  RATE 1.00x  >`.
 
-- `DEFAULT_RATE` — the rate for every song without an override. `1.0` is normal.
-- `SONG_RATES` — per-song overrides:
+- **Tap the left half** to slow down, **the right half** to speed up.
+- On a keyboard, **Q** and **E**.
+- Steps of 0.05, clamped between 0.5x and 2.0x.
 
-```haxe
-var SONG_RATES:Array<Dynamic> = [
-  { song: 'bopeebo', rate: 1.2 },
-  { song: 'dadbattle', rate: 1.5 }
-];
-```
+The value is saved immediately, so it survives closing the game.
 
-- `MIN_RATE` / `MAX_RATE` — clamp, defaults 0.5 and 2.0.
+## Tuning
+
+In `FreeplayRateSelector.hxc`:
+
+- `STEP` — how much one tap changes the rate. Default `0.05`.
+- `MIN_RATE` / `MAX_RATE` — the clamp. Also set in the module.
+- `X_OFFSET` / `Y_OFFSET` — where it sits relative to the difficulty. Default is 115px below.
+- `TAP_PADDING` — how much extra room around the text counts as a tap. Default 24px.
+- `FONT_SIZE` — text size.
+
+In `PlaybackRateModule.hxc`:
+
 - `SCALE_ANIMATIONS` — also speed up animations, tweens and timers to match. On by default.
 - `INVALIDATE_SCORE` — keep modified runs out of your high scores. On by default.
+- `FALLBACK_RATE` — used before anything has been chosen in Freeplay.
 
-From another script:
-
-```haxe
-ModuleHandler.getModule('PlaybackRateModule').setRate(1.5);
-```
+Both scripts share `SAVE_KEY`; change it in both or neither.
 
 ## How it works
 
 The rate is applied as **pitch** on the instrumental and the vocals, exactly like the
-chart editor's playback speed control does. `Conductor.update()` reads its position from
+chart editor's playback speed control. `Conductor.update()` reads its position from
 `FlxG.sound.music.time`, so a track playing at 1.5x advances the song position 1.5x as
 fast, and notes, song events and beat hits all follow without any extra work.
 
-`SCALE_ANIMATIONS` sets `FlxG.timeScale`, which scales the `elapsed` value flixel hands
-to everything. Without it the audio speeds up but characters keep singing at normal speed,
-which looks wrong at anything above about 1.2x.
+The Freeplay control is an `FlxText` (plus a second one behind it as a drop shadow) added
+to the Freeplay substate on its `funnyCam`. It repositions every frame from
+`grpDifficulties`, so it slides in with the difficulty during the intro animation instead
+of popping into place.
 
 ## Notes
 
-- **Pitch, not time-stretch.** Faster means higher pitched, like a tape sped up. There's no
-  pitch-preserving resampling in the engine, so chipmunk voices at 1.5x are expected.
-- **Hit windows are unchanged in song time**, which means they're narrower in real time.
-  That's the point of a rate mod, but it does get hard fast — 1.5x is a real jump.
-- **Scores are invalidated by default** while the rate isn't 1.0, using the same
-  `validScore` flag the chart editor uses for test runs.
-- `FlxG.timeScale` is global, so the script resets it on song end, game over, leaving the
-  song and script reload. If you ever find the menus running fast, that reset is what to
-  look at.
-- Calling `setRate` mid-song works, but the pitch change is audible as a jump. It also
-  won't retime notes already on screen — they keep travelling at whatever speed the
-  Conductor is now advancing at, which is usually what you want.
+- **Pitch, not time-stretch.** Faster means higher pitched, like a tape sped up. There's
+  no pitch-preserving resampling in the engine, so chipmunk voices at 1.5x are expected.
+- **Hit windows are unchanged in song time**, so they're narrower in real time. 1.5x is a
+  much bigger jump than it sounds.
+- **Scores are invalidated** while the rate isn't 1.0, using the same `validScore` flag the
+  chart editor uses for test runs.
+- `FlxG.timeScale` is global, so the module resets it on song end, game over, leaving the
+  song and script reload. If the menus ever run fast, that reset is what to look at.
+- The tap area sits above Freeplay's DJ hitbox, so it shouldn't steal taps from anything
+  else. If it ever does, shrink `TAP_PADDING`.

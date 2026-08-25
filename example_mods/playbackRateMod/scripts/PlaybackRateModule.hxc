@@ -1,40 +1,29 @@
 import flixel.FlxG;
 import funkin.modding.module.Module;
 import funkin.play.PlayState;
+import funkin.save.Save;
 
 /**
- * Plays songs faster or slower.
+ * Plays every song at the rate chosen in Freeplay.
  *
  * The rate is applied as pitch on the instrumental and the vocals. The Conductor
  * reads its position straight from the instrumental's playhead, so notes, events
  * and beat hits all follow the new speed on their own.
  *
- * `SCALE_ANIMATIONS` additionally scales flixel's global time, so character
- * animations, tweens and timers run at the same speed as the music instead of
- * lagging behind it at high rates.
+ * FreeplayRateSelector.hxc writes the value; this reads it.
  */
 class PlaybackRateModule extends Module
 {
   /**
-   * The rate used for songs with no entry in SONG_RATES.
-   * 1.0 is normal, 1.5 is half again as fast, 0.75 is slower.
+   * Where the rate is stored. FreeplayRateSelector writes the same key.
    */
-  var DEFAULT_RATE:Float = 1.0;
+  var SAVE_KEY:String = 'PlaybackRate';
 
   /**
-   * Per-song overrides. `song` is the song ID, i.e. the folder name in `data/songs/`.
+   * Used before anything has been chosen in Freeplay.
    */
-  var SONG_RATES:Array<Dynamic> = [
-    {
-      song: 'bopeebo',
-      rate: 1.2
-    }
-  ];
+  var FALLBACK_RATE:Float = 1.0;
 
-  /**
-   * How far the rate is allowed to go. Very low rates can stall the song and very
-   * high ones outrun the note rendering.
-   */
   var MIN_RATE:Float = 0.5;
 
   var MAX_RATE:Float = 2.0;
@@ -46,14 +35,10 @@ class PlaybackRateModule extends Module
   var SCALE_ANIMATIONS:Bool = true;
 
   /**
-   * Whether to stop a modified run from counting as a high score. Leave this on
-   * unless you want rate-boosted scores in your save file.
+   * Whether to stop a modified run from counting as a high score.
    */
   var INVALIDATE_SCORE:Bool = true;
 
-  /**
-   * The rate currently applied, or 1.0 when nothing is applied.
-   */
   var currentRate:Float = 1.0;
 
   public function new(moduleId:String)
@@ -63,10 +48,8 @@ class PlaybackRateModule extends Module
 
   function onCountdownStart(event):Void
   {
-    if (PlayState.instance == null || PlayState.instance.currentSong == null) return;
-
     // Set the rate before the song starts so the countdown runs at the same speed.
-    setRate(getRateForSong(PlayState.instance.currentSong.id));
+    setRate(getSavedRate());
   }
 
   function onSongStart(event):Void
@@ -78,7 +61,6 @@ class PlaybackRateModule extends Module
   /**
    * Change the playback rate. Safe to call mid-song, though the pitch change is
    * audible as a small jump.
-   * @param rate 1.0 is normal speed.
    */
   public function setRate(rate:Float):Void
   {
@@ -100,17 +82,12 @@ class PlaybackRateModule extends Module
     }
   }
 
-  /**
-   * The rate this song should run at.
-   */
-  function getRateForSong(songId:String):Float
+  function getSavedRate():Float
   {
-    for (entry in SONG_RATES)
-    {
-      if (entry != null && entry.song == songId) return entry.rate;
-    }
+    var value:Dynamic = Save.instance.modOptions.get(SAVE_KEY);
+    if (value == null) return FALLBACK_RATE;
 
-    return DEFAULT_RATE;
+    return value;
   }
 
   function applyToAudio(rate:Float):Void

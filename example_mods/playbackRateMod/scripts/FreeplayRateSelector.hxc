@@ -1,0 +1,232 @@
+import flixel.FlxG;
+import flixel.text.FlxText;
+import funkin.modding.module.Module;
+import funkin.save.Save;
+import funkin.ui.freeplay.FreeplayState;
+
+/**
+ * Adds a playback rate selector to the Freeplay menu, under the difficulty.
+ *
+ * Tap the left half to slow down, the right half to speed up (Q and E on a
+ * keyboard). The value is saved, and PlaybackRateModule reads it when a song
+ * starts, so it applies to every song until you change it again.
+ */
+class FreeplayRateSelector extends Module
+{
+  /**
+   * Where the value is stored. PlaybackRateModule reads the same key.
+   */
+  var SAVE_KEY:String = 'PlaybackRate';
+
+  var MIN_RATE:Float = 0.5;
+  var MAX_RATE:Float = 2.0;
+
+  /**
+   * How much one tap changes the rate.
+   */
+  var STEP:Float = 0.05;
+
+  /**
+   * Position relative to the difficulty display.
+   */
+  var X_OFFSET:Float = 0.0;
+
+  var Y_OFFSET:Float = 115.0;
+
+  /**
+   * Extra room around the text for tapping, in pixels.
+   */
+  var TAP_PADDING:Float = 24.0;
+
+  var FONT_SIZE:Int = 32;
+
+  var label:Dynamic = null;
+
+  var shadow:Dynamic = null;
+
+  public function new(moduleId:String)
+  {
+    super(moduleId);
+  }
+
+  function onUpdate(event):Void
+  {
+    var state:Dynamic = getFreeplay();
+
+    if (state == null)
+    {
+      // Left the menu; the substate took the label with it.
+      label = null;
+      shadow = null;
+      return;
+    }
+
+    if (label == null || !label.exists) createLabel(state);
+    if (label == null) return;
+
+    // Reposition every frame so it slides in with the difficulty on the intro.
+    positionLabel(state);
+
+    handleInput(state);
+  }
+
+  /**
+   * Freeplay is a substate, so it hangs off the current state rather than being it.
+   */
+  function getFreeplay():Dynamic
+  {
+    if (FlxG.state == null) return null;
+
+    var sub:Dynamic = FlxG.state.subState;
+    if (sub != null && Std.isOfType(sub, FreeplayState)) return sub;
+
+    return null;
+  }
+
+  function createLabel(state:Dynamic):Void
+  {
+    shadow = new FlxText(0, 0, 0, buildText(getRate()), FONT_SIZE);
+    label = new FlxText(0, 0, 0, buildText(getRate()), FONT_SIZE);
+
+    // A cheap drop shadow, so it reads against the bright Freeplay background.
+    styleText(shadow, 0xFF000000, state);
+    styleText(label, 0xFFFFFFFF, state);
+
+    state.add(shadow);
+    state.add(label);
+  }
+
+  function styleText(text:Dynamic, color:Int, state:Dynamic):Void
+  {
+    try
+    {
+      text.font = Paths.font('vcr.ttf');
+    }
+    catch (e:Dynamic) {}
+
+    text.color = color;
+    text.scrollFactor.set();
+    text.cameras = [state.funnyCam];
+  }
+
+  function positionLabel(state:Dynamic):Void
+  {
+    // Follow the difficulty display if we can read it, so the two stay lined up.
+    var baseX:Float = (FreeplayState.CUTOUT_WIDTH * FreeplayState.DJ_POS_MULTI) + 90;
+    var baseY:Float = 80;
+
+    try
+    {
+      var difficulties:Dynamic = state.grpDifficulties;
+      if (difficulties != null)
+      {
+        baseX = difficulties.x;
+        baseY = difficulties.y;
+      }
+    }
+    catch (e:Dynamic) {}
+
+    label.x = baseX + X_OFFSET;
+    label.y = baseY + Y_OFFSET;
+
+    shadow.x = label.x + 3;
+    shadow.y = label.y + 3;
+  }
+
+  function handleInput(state:Dynamic):Void
+  {
+    var delta:Float = 0.0;
+
+    if (FlxG.keys != null)
+    {
+      if (FlxG.keys.justPressed.Q) delta = -STEP;
+      if (FlxG.keys.justPressed.E) delta = STEP;
+    }
+
+    if (delta == 0.0) delta = checkPointerInput(state);
+
+    if (delta != 0.0) applyDelta(delta);
+  }
+
+  /**
+   * Tapping (or clicking) the left half of the label slows down, the right half speeds up.
+   */
+  function checkPointerInput(state:Dynamic):Float
+  {
+    var camera:Dynamic = state.funnyCam;
+
+    for (touch in FlxG.touches.list)
+    {
+      if (touch == null || !touch.justPressed) continue;
+
+      var position:Dynamic = touch.getWorldPosition(camera);
+      var delta:Float = hitTest(position.x, position.y);
+      if (delta != 0.0) return delta;
+    }
+
+    if (FlxG.mouse != null && FlxG.mouse.justPressed)
+    {
+      var position:Dynamic = FlxG.mouse.getWorldPosition(camera);
+      return hitTest(position.x, position.y);
+    }
+
+    return 0.0;
+  }
+
+  function hitTest(x:Float, y:Float):Float
+  {
+    if (label == null) return 0.0;
+
+    var left:Float = label.x - TAP_PADDING;
+    var right:Float = label.x + label.width + TAP_PADDING;
+    var top:Float = label.y - TAP_PADDING;
+    var bottom:Float = label.y + label.height + TAP_PADDING;
+
+    if (x < left || x > right) return 0.0;
+    if (y < top || y > bottom) return 0.0;
+
+    if (x < label.x + (label.width / 2)) return -STEP;
+
+    return STEP;
+  }
+
+  function applyDelta(delta:Float):Void
+  {
+    var rate:Float = getRate() + delta;
+
+    // Snap to the step so repeated taps don't drift off the grid.
+    rate = Math.round(rate / STEP) * STEP;
+
+    if (rate < MIN_RATE) rate = MIN_RATE;
+    if (rate > MAX_RATE) rate = MAX_RATE;
+
+    Save.instance.modOptions.set(SAVE_KEY, rate);
+    Save.instance.flush();
+
+    if (label != null) label.text = buildText(rate);
+    if (shadow != null) shadow.text = buildText(rate);
+  }
+
+  function getRate():Float
+  {
+    var value:Dynamic = Save.instance.modOptions.get(SAVE_KEY);
+    if (value == null) return 1.0;
+
+    return value;
+  }
+
+  /**
+   * Format as `<  RATE 1.25x  >`, always with two decimals.
+   */
+  function buildText(rate:Float):String
+  {
+    var hundredths:Int = Math.round(rate * 100);
+    var whole:Int = Std.int(hundredths / 100);
+    var fraction:Int = hundredths - (whole * 100);
+
+    var fractionText:String = '' + fraction;
+    if (fraction < 10) fractionText = '0' + fraction;
+
+    return '<  RATE ' + whole + '.' + fractionText + 'x  >';
+  }
+}
