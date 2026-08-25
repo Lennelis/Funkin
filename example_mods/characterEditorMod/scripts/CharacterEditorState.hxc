@@ -91,7 +91,11 @@ class CharacterEditorState extends MusicBeatState
 
     camEdit = new FlxCamera();
     camUI = new FlxCamera();
-    camUI.bgColor.alpha = 0;
+
+    // Fully transparent. `bgColor` is an FlxColor, which is an abstract over Int,
+    // so its `.alpha` property only exists at compile time -- assign the whole
+    // colour instead.
+    camUI.bgColor = 0x00000000;
 
     FlxG.cameras.reset(camEdit);
     FlxG.cameras.add(camUI, false);
