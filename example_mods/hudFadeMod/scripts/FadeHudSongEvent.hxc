@@ -1,0 +1,161 @@
+import funkin.Conductor;
+import funkin.modding.module.ModuleHandler;
+import funkin.play.PlayState;
+import funkin.play.event.SongEvent;
+import haxe.ds.StringMap;
+
+/**
+ * A chart event which fades the HUD.
+ *
+ * Place one where it should fade out, and another with an opacity of 1 where it
+ * should come back.
+ *
+ * ```
+ * {
+ *   'e': 'FadeHUD',
+ *   'v': {
+ *     "alpha": 0,
+ *     "duration": 8,
+ *     "ease": "quart",
+ *     "easeDir": "Out",
+ *     "target": "hud"
+ *   }
+ * }
+ * ```
+ */
+class FadeHudSongEvent extends SongEvent
+{
+  var DEFAULT_ALPHA:Float = 0.0;
+  var DEFAULT_DURATION:Float = 8.0;
+  var DEFAULT_TARGET:String = 'hud';
+
+  public function new(id:String)
+  {
+    super('FadeHUD');
+  }
+
+  public function handleEvent(data):Void
+  {
+    if (PlayState.instance == null) return;
+
+    var alpha = data.getFloat('alpha');
+    if (alpha == null) alpha = DEFAULT_ALPHA;
+
+    var duration = data.getFloat('duration');
+    if (duration == null) duration = DEFAULT_DURATION;
+
+    var target = data.getString('target');
+    if (target == null || target == '') target = DEFAULT_TARGET;
+
+    var ease = buildEaseName(data.getString('ease'), data.getString('easeDir'));
+    if (ease == 'INSTANT') duration = 0;
+
+    var hudFade = ModuleHandler.getModule('HudFadeModule');
+    if (hudFade == null)
+    {
+      trace('[FadeHUD] HudFadeModule is not loaded, ignoring this event.');
+      return;
+    }
+
+    hudFade.fadeHud(target, alpha, duration, ease);
+  }
+
+  /**
+   * Combine an ease name and a direction into a function name from FlxEase.
+   */
+  function buildEaseName(ease:String, easeDir:String):String
+  {
+    if (ease == null || ease == '') return 'linear';
+    if (ease == 'linear' || ease == 'INSTANT') return ease;
+    if (easeDir == null || easeDir == '') return ease + 'In';
+
+    return ease + easeDir;
+  }
+
+  public function getTitle():String
+  {
+    return 'Fade HUD';
+  }
+
+  /**
+   * ```
+   * {
+   *   'alpha': FLOAT, // Opacity to fade to.
+   *   'duration': FLOAT, // Fade length in steps.
+   *   'ease': ENUM, // Easing function.
+   *   'easeDir': ENUM, // Easing direction.
+   *   'target': ENUM, // Which part of the HUD to fade.
+   * }
+   * ```
+   */
+  public function getEventSchema():Dynamic
+  {
+    var easeKeys = new StringMap();
+    easeKeys.set('Linear', 'linear');
+    easeKeys.set('Instant (Ignores duration)', 'INSTANT');
+    easeKeys.set('Sine', 'sine');
+    easeKeys.set('Quad', 'quad');
+    easeKeys.set('Cube', 'cube');
+    easeKeys.set('Quart', 'quart');
+    easeKeys.set('Quint', 'quint');
+    easeKeys.set('Expo', 'expo');
+    easeKeys.set('Smooth Step', 'smoothStep');
+    easeKeys.set('Smoother Step', 'smootherStep');
+    easeKeys.set('Elastic', 'elastic');
+    easeKeys.set('Back', 'back');
+    easeKeys.set('Bounce', 'bounce');
+    easeKeys.set('Circ', 'circ');
+
+    var easeDirKeys = new StringMap();
+    easeDirKeys.set('In', 'In');
+    easeDirKeys.set('Out', 'Out');
+    easeDirKeys.set('In/Out', 'InOut');
+
+    var targetKeys = new StringMap();
+    targetKeys.set('Whole HUD', 'hud');
+    targetKeys.set('Strumlines Only', 'strumlines');
+    targetKeys.set('Bar & Score Only', 'ui');
+
+    return [
+      {
+        name: 'alpha',
+        title: 'Opacity',
+        defaultValue: DEFAULT_ALPHA,
+        min: 0.0,
+        max: 1.0,
+        step: 0.05,
+        type: 'float'
+      },
+      {
+        name: 'duration',
+        title: 'Duration',
+        defaultValue: DEFAULT_DURATION,
+        min: 0.0,
+        step: 0.5,
+        type: 'float',
+        units: 'steps'
+      },
+      {
+        name: 'ease',
+        title: 'Easing Type',
+        defaultValue: 'linear',
+        type: 'enum',
+        keys: easeKeys
+      },
+      {
+        name: 'easeDir',
+        title: 'Easing Direction',
+        defaultValue: 'Out',
+        type: 'enum',
+        keys: easeDirKeys
+      },
+      {
+        name: 'target',
+        title: 'Target',
+        defaultValue: DEFAULT_TARGET,
+        type: 'enum',
+        keys: targetKeys
+      }
+    ];
+  }
+}

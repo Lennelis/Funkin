@@ -1,0 +1,12 @@
+{
+  "title": "HUD Fade Mod",
+  "description": "A FadeHUD chart event which fades the HUD, the strumlines, or just the bar and score.",
+  "contributors": [
+    {
+      "name": "lennelis"
+    }
+  ],
+  "api_version": "0.8.0",
+  "mod_version": "1.0.0",
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,228 @@
+import flixel.tweens.FlxEase;
+import flixel.tweens.FlxTween;
+import funkin.Conductor;
+import funkin.modding.module.Module;
+import funkin.play.PlayState;
+
+/**
+ * Fades the HUD in and out.
+ *
+ * Three targets:
+ * - 'hud': the whole HUD camera, so notes, bar, icons and score all together.
+ * - 'strumlines': both strumlines and their notes, leaving the bar and score up.
+ * - 'ui': the health bar, icons and score, leaving the notes readable.
+ *
+ * Drive it from the chart with FadeHudSongEvent.hxc, or from a script:
+ *
+ * ```haxe
+ * var hudFade = ModuleHandler.getModule('HudFadeModule');
+ * hudFade.fadeHud('hud', 0.0, 8, 'quartOut');
+ * hudFade.fadeHud('hud', 1.0, 8, 'quartOut');
+ * ```
+ */
+class HudFadeModule extends Module
+{
+  /**
+   * The alpha everything is restored to when a song ends or restarts.
+   */
+  var NORMAL_ALPHA:Float = 1.0;
+
+  /**
+   * Every fade tween we currently have running.
+   */
+  var activeTweens:Array<Dynamic> = [];
+
+  public function new(moduleId:String)
+  {
+    super(moduleId);
+  }
+
+  /**
+   * Fade part of the HUD to a given alpha.
+   * @param target 'hud', 'strumlines' or 'ui'.
+   * @param targetAlpha The alpha to fade to (0.0 - 1.0).
+   * @param durationSteps How long the fade takes, in steps. 0 snaps instantly.
+   * @param ease The name of an easing function from FlxEase.
+   */
+  public function fadeHud(target:String, targetAlpha:Float, durationSteps:Float, ease:String):Void
+  {
+    if (PlayState.instance == null) return;
+
+    purgeTweens();
+
+    var objects:Array<Dynamic> = getTargets(target);
+    if (objects.length == 0) return;
+
+    var easeFunction:Dynamic = resolveEase(ease);
+    var durationSeconds:Float = stepsToSeconds(durationSteps);
+
+    for (object in objects)
+    {
+      startTween(object, targetAlpha, durationSeconds, easeFunction);
+    }
+  }
+
+  /**
+   * Start one alpha tween, replacing whatever that object was doing.
+   */
+  function startTween(object:Dynamic, targetAlpha:Float, durationSeconds:Float, easeFunction:Dynamic):Void
+  {
+    if (object == null) return;
+
+    FlxTween.cancelTweensOf(object);
+
+    if (durationSeconds <= 0)
+    {
+      object.alpha = targetAlpha;
+      return;
+    }
+
+    activeTweens.push(FlxTween.tween(object, {alpha: targetAlpha}, durationSeconds, {ease: easeFunction}));
+  }
+
+  /**
+   * Resolve a target name into the objects it covers.
+   */
+  function getTargets(target:String):Array<Dynamic>
+  {
+    var game:Dynamic = PlayState.instance;
+    if (game == null) return [];
+
+    if (target == 'strumlines') return [game.playerStrumline, game.opponentStrumline];
+
+    if (target == 'ui')
+    {
+      var result:Array<Dynamic> = [game.healthBar, game.healthBarBG, game.iconP1, game.iconP2];
+
+      // scoreText isn't a public field, so don't let it break the rest.
+      try
+      {
+        if (game.scoreText != null) result.push(game.scoreText);
+      }
+      catch (e:Dynamic) {}
+
+      return result;
+    }
+
+    return [game.camHUD];
+  }
+
+  /**
+   * Drop tweens that have already finished, so the list doesn't grow all song.
+   */
+  function purgeTweens():Void
+  {
+    var remaining:Array<Dynamic> = [];
+
+    for (tween in activeTweens)
+    {
+      if (tween != null && !tween.finished) remaining.push(tween);
+    }
+
+    activeTweens = remaining;
+  }
+
+  function cancelAllTweens():Void
+  {
+    for (tween in activeTweens)
+    {
+      if (tween != null) tween.cancel();
+    }
+
+    activeTweens = [];
+  }
+
+  /**
+   * Convert a length in steps into seconds, using the song's current BPM.
+   */
+  function stepsToSeconds(steps:Float):Float
+  {
+    if (steps <= 0) return 0.0;
+
+    return (Conductor.instance.stepLengthMs * steps) / 1000.0;
+  }
+
+  /**
+   * Look up an easing function by name, falling back to a linear ease.
+   */
+  function resolveEase(ease:String):Dynamic
+  {
+    if (ease == null || ease == '' || ease == 'linear') return FlxEase.linear;
+
+    var easeFunction:Dynamic = Reflect.field(FlxEase, ease);
+    if (easeFunction == null)
+    {
+      trace('[HudFade] Unknown ease function: ' + ease + ', falling back to linear.');
+      return FlxEase.linear;
+    }
+
+    return easeFunction;
+  }
+
+  /**
+   * Tweens keep running while the game is paused, so freeze them by hand.
+   */
+  function onPause(event):Void
+  {
+    for (tween in activeTweens)
+    {
+      if (tween != null) tween.active = false;
+    }
+  }
+
+  function onResume(event):Void
+  {
+    for (tween in activeTweens)
+    {
+      if (tween != null && !tween.finished) tween.active = true;
+    }
+  }
+
+  function onSongStart(event):Void
+  {
+    restoreAll();
+  }
+
+  function onSongRetry(event):Void
+  {
+    restoreAll();
+  }
+
+  function onSongEnd(event):Void
+  {
+    restoreAll();
+  }
+
+  function onGameOver(event):Void
+  {
+    restoreAll();
+  }
+
+  function onDestroy(event):Void
+  {
+    restoreAll();
+  }
+
+  /**
+   * Put every target back to full opacity. A faded HUD carrying into the next
+   * song, or into the results screen, would be a nasty surprise.
+   */
+  function restoreAll():Void
+  {
+    cancelAllTweens();
+
+    if (PlayState.instance == null) return;
+
+    restore(getTargets('hud'));
+    restore(getTargets('strumlines'));
+    restore(getTargets('ui'));
+  }
+
+  function restore(objects:Array<Dynamic>):Void
+  {
+    for (object in objects)
+    {
+      if (object != null) object.alpha = NORMAL_ALPHA;
+    }
+  }
+}
