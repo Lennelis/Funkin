@@ -1,0 +1,853 @@
+import flixel.FlxCamera;
+import flixel.FlxG;
+import flixel.FlxSprite;
+import flixel.text.FlxText;
+import funkin.play.character.CharacterDataParser;
+import funkin.save.Save;
+import funkin.ui.MusicBeatState;
+import funkin.util.FileUtil;
+import haxe.Json;
+
+/**
+ * A character editor that runs entirely from a mod script.
+ *
+ * Edits the character's data in place. `CharacterDataParser.fetchCharacterData()`
+ * hands back the cached data object every character is built from, so changing a
+ * value and rebuilding the preview shows exactly what the game will do.
+ *
+ * Saving writes the whole character JSON into the save file, under
+ * `CharEdit:<characterId>`. CharacterOverridesModule.hxc reads those back at
+ * startup and applies them, so edits survive without touching the filesystem.
+ * Export additionally tries to write a real .json into a mod folder.
+ */
+class CharacterEditorState extends MusicBeatState
+{
+  var SAVE_PREFIX:String = 'CharEdit:';
+
+  var EXPORT_DIR:String = 'mods/characterEditorOutput/data/characters';
+
+  /**
+   * How many property rows are on screen at once.
+   */
+  var ROWS:Int = 11;
+
+  var ROW_HEIGHT:Float = 28.0;
+
+  var camEdit:Dynamic = null;
+  var camUI:Dynamic = null;
+
+  var charIds:Array<String> = [];
+  var charIndex:Int = 0;
+  var character:Dynamic = null;
+  var data:Dynamic = null;
+
+  /**
+   * The character's data as it was when loaded, for Revert.
+   */
+  var originalJson:String = '';
+
+  var animNames:Array<String> = [];
+  var animIndex:Int = 0;
+
+  /**
+   * One entry per editable property. Each is
+   * {label, kind, get, set, step, options}.
+   */
+  var fields:Array<Dynamic> = [];
+
+  var scroll:Int = 0;
+
+  /**
+   * Tappable regions: {sprite, action}.
+   */
+  var buttons:Array<Dynamic> = [];
+
+  var rowLabels:Array<Dynamic> = [];
+
+  var headerText:Dynamic = null;
+  var animText:Dynamic = null;
+  var statusText:Dynamic = null;
+
+  /**
+   * How far one d-pad press moves an offset.
+   */
+  var nudge:Float = 1.0;
+
+  /**
+   * Rebuilding the sprite is slow, so batch it instead of doing it per tap.
+   */
+  var reloadTimer:Float = -1.0;
+
+  var fieldX:Float = 0.0;
+
+  public function new()
+  {
+    super();
+  }
+
+  function create():Void
+  {
+    super.create();
+
+    camEdit = new FlxCamera();
+    camUI = new FlxCamera();
+    camUI.bgColor.alpha = 0;
+
+    FlxG.cameras.reset(camEdit);
+    FlxG.cameras.add(camUI, false);
+
+    fieldX = FlxG.width - 520;
+
+    charIds = CharacterDataParser.listCharacterIds();
+    charIds.sort(function(a, b) {
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    });
+
+    buildGuides();
+    buildUI();
+
+    loadCharacter(0);
+  }
+
+  /**
+   * A floor line and centre mark, so offsets have something to read against.
+   */
+  function buildGuides():Void
+  {
+    var floor:Dynamic = new FlxSprite(0, FlxG.height * 0.82);
+    floor.makeGraphic(Std.int(FlxG.width), 2, 0xFF3355AA);
+    floor.cameras = [camEdit];
+    add(floor);
+
+    var middle:Dynamic = new FlxSprite(FlxG.width * 0.5, 0);
+    middle.makeGraphic(2, Std.int(FlxG.height), 0xFF3355AA);
+    middle.cameras = [camEdit];
+    add(middle);
+  }
+
+  function buildUI():Void
+  {
+    headerText = makeText(20, 16, 900, '', 20);
+    animText = makeText(20, 44, 900, '', 18);
+    statusText = makeText(20, FlxG.height - 34, 900, 'Tap a control to begin.', 16);
+
+    // Property rows.
+    for (i in 0...ROWS)
+    {
+      var row:Int = i;
+      var rowY:Float = 90 + (i * ROW_HEIGHT);
+
+      addButton(fieldX, rowY, 34, '<', function() {
+        adjustField(row, -1);
+      });
+
+      var label:Dynamic = makeText(fieldX + 44, rowY, 400, '', 15);
+      rowLabels.push(label);
+
+      addButton(fieldX + 452, rowY, 34, '>', function() {
+        adjustField(row, 1);
+      });
+    }
+
+    var listBottom:Float = 90 + (ROWS * ROW_HEIGHT) + 8;
+
+    addButton(fieldX, listBottom, 120, 'LIST UP', function() {
+      scrollBy(-ROWS);
+    });
+
+    addButton(fieldX + 130, listBottom, 140, 'LIST DOWN', function() {
+      scrollBy(ROWS);
+    });
+
+    // Character selection.
+    addButton(20, 80, 150, '< CHARACTER', function() {
+      loadCharacter(charIndex - 1);
+    });
+
+    addButton(180, 80, 150, 'CHARACTER >', function() {
+      loadCharacter(charIndex + 1);
+    });
+
+    // Animation selection.
+    addButton(20, 120, 150, '< ANIM', function() {
+      selectAnim(animIndex - 1);
+    });
+
+    addButton(180, 120, 150, 'ANIM >', function() {
+      selectAnim(animIndex + 1);
+    });
+
+    addButton(340, 120, 110, 'REPLAY', function() {
+      playCurrentAnim();
+    });
+
+    // Offset d-pad for the selected animation.
+    var padX:Float = 60;
+    var padY:Float = FlxG.height - 210;
+
+    addButton(padX, padY, 70, 'UP', function() {
+      nudgeOffset(0, -nudge);
+    });
+
+    addButton(padX - 80, padY + 50, 70, 'LEFT', function() {
+      nudgeOffset(-nudge, 0);
+    });
+
+    addButton(padX + 80, padY + 50, 70, 'RIGHT', function() {
+      nudgeOffset(nudge, 0);
+    });
+
+    addButton(padX, padY + 100, 70, 'DOWN', function() {
+      nudgeOffset(0, nudge);
+    });
+
+    addButton(padX + 180, padY + 50, 110, 'STEP 1', function() {
+      toggleNudge();
+    });
+
+    // Camera.
+    addButton(padX + 320, padY, 90, 'ZOOM +', function() {
+      camEdit.zoom = camEdit.zoom * 1.1;
+    });
+
+    addButton(padX + 320, padY + 50, 90, 'ZOOM -', function() {
+      camEdit.zoom = camEdit.zoom / 1.1;
+    });
+
+    addButton(padX + 320, padY + 100, 90, 'ZOOM 1', function() {
+      camEdit.zoom = 1.0;
+    });
+
+    // File actions.
+    var actionY:Float = FlxG.height - 60;
+
+    addButton(20, actionY, 100, 'SAVE', function() {
+      saveCharacter();
+    });
+
+    addButton(130, actionY, 130, 'EXPORT', function() {
+      exportCharacter();
+    });
+
+    addButton(270, actionY, 120, 'REVERT', function() {
+      revertCharacter();
+    });
+
+    addButton(400, actionY, 100, 'EXIT', function() {
+      exitEditor();
+    });
+  }
+
+  function makeText(x:Float, y:Float, width:Float, content:String, size:Int):Dynamic
+  {
+    var text:Dynamic = new FlxText(x, y, width, content, size);
+    text.scrollFactor.set();
+    text.cameras = [camUI];
+    add(text);
+
+    return text;
+  }
+
+  function addButton(x:Float, y:Float, width:Float, label:String, action:Dynamic):Void
+  {
+    var text:Dynamic = makeText(x, y, width, label, 16);
+    text.color = 0xFFFFFF66;
+
+    buttons.push({sprite: text, action: action});
+  }
+
+  // ---------------------------------------------------------------- loading
+
+  function loadCharacter(index:Int):Void
+  {
+    if (charIds.length == 0)
+    {
+      status('No characters found.');
+      return;
+    }
+
+    if (index < 0) index = charIds.length - 1;
+    if (index >= charIds.length) index = 0;
+
+    charIndex = index;
+
+    var id:String = charIds[charIndex];
+
+    data = CharacterDataParser.fetchCharacterData(id);
+    if (data == null)
+    {
+      status('No data for ' + id);
+      return;
+    }
+
+    originalJson = Json.stringify(data);
+
+    // Anything already saved for this character is applied before we show it.
+    var saved:Dynamic = Save.instance.modOptions.get(SAVE_PREFIX + id);
+    if (saved != null)
+    {
+      try
+      {
+        copyFields(Json.parse(saved), data);
+      }
+      catch (e:Dynamic)
+      {
+        trace('[CharEditor] Could not read saved data for ' + id);
+      }
+    }
+
+    rebuildCharacter();
+    buildFields();
+
+    status('Loaded ' + id);
+  }
+
+  /**
+   * Throw the preview away and build it again from the current data.
+   */
+  function rebuildCharacter():Void
+  {
+    if (character != null)
+    {
+      remove(character);
+      character.destroy();
+      character = null;
+    }
+
+    var id:String = charIds[charIndex];
+
+    character = CharacterDataParser.fetchCharacter(id);
+    if (character == null)
+    {
+      status('Could not build ' + id);
+      return;
+    }
+
+    character.cameras = [camEdit];
+    add(character);
+
+    character.x = (FlxG.width * 0.5) - (character.width * 0.5);
+    character.y = (FlxG.height * 0.82) - character.height;
+
+    animNames = character.animation.getNameList();
+    if (animNames == null) animNames = [];
+
+    if (animIndex >= animNames.length) animIndex = 0;
+
+    playCurrentAnim();
+  }
+
+  function selectAnim(index:Int):Void
+  {
+    if (animNames.length == 0) return;
+
+    if (index < 0) index = animNames.length - 1;
+    if (index >= animNames.length) index = 0;
+
+    animIndex = index;
+
+    playCurrentAnim();
+  }
+
+  function playCurrentAnim():Void
+  {
+    if (character == null || animNames.length == 0) return;
+
+    character.playAnimation(animNames[animIndex], true);
+  }
+
+  // ---------------------------------------------------------------- fields
+
+  function addField(label:String, kind:String, getter:Dynamic, setter:Dynamic, stepSize:Float, options:Array<String>):Void
+  {
+    fields.push({label: label, kind: kind, get: getter, set: setter, step: stepSize, options: options});
+  }
+
+  /**
+   * A float stored inside an array, like `offsets[0]`. Creates the array if needed.
+   */
+  function addArrayField(label:String, owner:Dynamic, key:String, index:Int, stepSize:Float):Void
+  {
+    var target:Dynamic = owner;
+
+    addField(label, 'float', function() {
+      var array:Dynamic = Reflect.field(target, key);
+      if (array == null) return 0.0;
+      return array[index];
+    }, function(value) {
+      var array:Dynamic = Reflect.field(target, key);
+      if (array == null)
+      {
+        array = [0.0, 0.0];
+        Reflect.setField(target, key, array);
+      }
+      array[index] = value;
+    }, stepSize, null);
+  }
+
+  function buildFields():Void
+  {
+    fields = [];
+    scroll = 0;
+
+    if (data == null) return;
+
+    var d:Dynamic = data;
+
+    addField('name', 'text', function() {
+      return d.name;
+    }, null, 0, null);
+
+    addField('renderType', 'enum', function() {
+      return d.renderType;
+    }, function(value) {
+      d.renderType = value;
+      queueReload();
+    }, 0, ['sparrow', 'packer', 'multisparrow', 'animateatlas', 'multianimateatlas', 'custom']);
+
+    addField('assetPath', 'text', function() {
+      return d.assetPath;
+    }, null, 0, null);
+
+    addField('scale', 'float', function() {
+      return d.scale;
+    }, function(value) {
+      d.scale = value;
+      queueReload();
+    }, 0.05, null);
+
+    addField('isPixel', 'bool', function() {
+      return d.isPixel;
+    }, function(value) {
+      d.isPixel = value;
+      queueReload();
+    }, 0, null);
+
+    addField('flipX', 'bool', function() {
+      return d.flipX;
+    }, function(value) {
+      d.flipX = value;
+      queueReload();
+    }, 0, null);
+
+    addField('danceEvery', 'float', function() {
+      return d.danceEvery;
+    }, function(value) {
+      d.danceEvery = value;
+    }, 0.25, null);
+
+    addField('singTime', 'float', function() {
+      return d.singTime;
+    }, function(value) {
+      d.singTime = value;
+    }, 0.25, null);
+
+    addField('startingAnimation', 'text', function() {
+      return d.startingAnimation;
+    }, null, 0, null);
+
+    addArrayField('offsets X', d, 'offsets', 0, 1);
+    addArrayField('offsets Y', d, 'offsets', 1, 1);
+    addArrayField('cameraOffsets X', d, 'cameraOffsets', 0, 1);
+    addArrayField('cameraOffsets Y', d, 'cameraOffsets', 1, 1);
+
+    buildHealthIconFields(d);
+    buildAnimationFields(d);
+  }
+
+  function buildHealthIconFields(d:Dynamic):Void
+  {
+    if (d.healthIcon == null)
+    {
+      addField('healthIcon', 'action', function() {
+        return '(none) - press to add';
+      }, function(value) {
+        d.healthIcon = {
+          id: charIds[charIndex],
+          scale: 1.0,
+          shouldBop: true,
+          flipX: false,
+          isPixel: false,
+          offsets: [0.0, 0.0]
+        };
+        buildFields();
+      }, 0, null);
+
+      return;
+    }
+
+    var icon:Dynamic = d.healthIcon;
+
+    addField('icon id', 'text', function() {
+      return icon.id;
+    }, null, 0, null);
+
+    addField('icon scale', 'float', function() {
+      return icon.scale;
+    }, function(value) {
+      icon.scale = value;
+    }, 0.05, null);
+
+    addField('icon shouldBop', 'bool', function() {
+      return icon.shouldBop;
+    }, function(value) {
+      icon.shouldBop = value;
+    }, 0, null);
+
+    addField('icon flipX', 'bool', function() {
+      return icon.flipX;
+    }, function(value) {
+      icon.flipX = value;
+    }, 0, null);
+
+    addField('icon isPixel', 'bool', function() {
+      return icon.isPixel;
+    }, function(value) {
+      icon.isPixel = value;
+    }, 0, null);
+
+    addArrayField('icon offsets X', icon, 'offsets', 0, 1);
+    addArrayField('icon offsets Y', icon, 'offsets', 1, 1);
+  }
+
+  function buildAnimationFields(d:Dynamic):Void
+  {
+    if (d.animations == null) return;
+
+    for (i in 0...d.animations.length)
+    {
+      var anim:Dynamic = d.animations[i];
+      if (anim == null) continue;
+
+      var prefix:String = '[' + anim.name + '] ';
+
+      addField(prefix + 'prefix', 'text', function() {
+        return anim.prefix;
+      }, null, 0, null);
+
+      addField(prefix + 'frameRate', 'float', function() {
+        return anim.frameRate;
+      }, function(value) {
+        anim.frameRate = Std.int(value);
+        queueReload();
+      }, 1, null);
+
+      addField(prefix + 'looped', 'bool', function() {
+        return anim.looped;
+      }, function(value) {
+        anim.looped = value;
+        queueReload();
+      }, 0, null);
+
+      addField(prefix + 'flipX', 'bool', function() {
+        return anim.flipX;
+      }, function(value) {
+        anim.flipX = value;
+        queueReload();
+      }, 0, null);
+
+      addArrayField(prefix + 'offset X', anim, 'offsets', 0, 1);
+      addArrayField(prefix + 'offset Y', anim, 'offsets', 1, 1);
+    }
+  }
+
+  function adjustField(row:Int, direction:Int):Void
+  {
+    var index:Int = scroll + row;
+    if (index < 0 || index >= fields.length) return;
+
+    var field:Dynamic = fields[index];
+    if (field == null || field.set == null) return;
+
+    if (field.kind == 'float')
+    {
+      var current:Dynamic = field.get();
+      var value:Float = (current == null) ? 0.0 : current;
+
+      value = value + (field.step * direction);
+
+      // Kill floating point dust from repeated steps.
+      value = Math.round(value * 1000) / 1000;
+
+      field.set(value);
+    }
+    else if (field.kind == 'bool')
+    {
+      var current:Dynamic = field.get();
+      field.set(!(current == true));
+    }
+    else if (field.kind == 'enum')
+    {
+      var options:Array<String> = field.options;
+      var current:Dynamic = field.get();
+
+      var position:Int = 0;
+      for (i in 0...options.length)
+      {
+        if (options[i] == current) position = i;
+      }
+
+      position = position + direction;
+      if (position < 0) position = options.length - 1;
+      if (position >= options.length) position = 0;
+
+      field.set(options[position]);
+    }
+    else if (field.kind == 'action')
+    {
+      field.set(true);
+    }
+
+    markDirty();
+  }
+
+  function scrollBy(amount:Int):Void
+  {
+    scroll = scroll + amount;
+
+    if (scroll > fields.length - ROWS) scroll = fields.length - ROWS;
+    if (scroll < 0) scroll = 0;
+  }
+
+  /**
+   * Move the selected animation's offsets, and mirror it onto the live sprite so
+   * you see it immediately instead of after a rebuild.
+   */
+  function nudgeOffset(x:Float, y:Float):Void
+  {
+    if (data == null || animNames.length == 0) return;
+
+    var name:String = animNames[animIndex];
+    var anim:Dynamic = findAnimation(name);
+    if (anim == null)
+    {
+      status('No data entry for animation ' + name);
+      return;
+    }
+
+    if (anim.offsets == null) anim.offsets = [0.0, 0.0];
+
+    anim.offsets[0] = anim.offsets[0] + x;
+    anim.offsets[1] = anim.offsets[1] + y;
+
+    if (character != null)
+    {
+      character.animationOffsets.set(name, [anim.offsets[0], anim.offsets[1]]);
+      character.playAnimation(name, true);
+    }
+
+    markDirty();
+  }
+
+  function findAnimation(name:String):Dynamic
+  {
+    if (data == null || data.animations == null) return null;
+
+    for (i in 0...data.animations.length)
+    {
+      var anim:Dynamic = data.animations[i];
+      if (anim != null && anim.name == name) return anim;
+    }
+
+    return null;
+  }
+
+  function toggleNudge():Void
+  {
+    if (nudge == 1.0) nudge = 10.0;
+    else nudge = 1.0;
+
+    for (button in buttons)
+    {
+      if (button.sprite.text == 'STEP 1' || button.sprite.text == 'STEP 10')
+      {
+        button.sprite.text = 'STEP ' + Std.int(nudge);
+      }
+    }
+  }
+
+  function markDirty():Void
+  {
+    status('Edited. Press SAVE to keep it.');
+  }
+
+  function queueReload():Void
+  {
+    reloadTimer = 0.35;
+  }
+
+  // ---------------------------------------------------------------- saving
+
+  function saveCharacter():Void
+  {
+    if (data == null) return;
+
+    var id:String = charIds[charIndex];
+
+    Save.instance.modOptions.set(SAVE_PREFIX + id, Json.stringify(data));
+    Save.instance.flush();
+
+    status('Saved ' + id + ' to the save file.');
+  }
+
+  function exportCharacter():Void
+  {
+    if (data == null) return;
+
+    var id:String = charIds[charIndex];
+    var path:String = EXPORT_DIR + '/' + id + '.json';
+
+    try
+    {
+      FileUtil.createDirIfNotExists(EXPORT_DIR);
+
+      // Delete first, since the default write mode skips existing files.
+      if (FileUtil.fileExists(path)) FileUtil.deleteFile(path);
+
+      FileUtil.writeStringToPath(path, Json.stringify(data));
+
+      status('Exported to ' + path);
+    }
+    catch (e:Dynamic)
+    {
+      status('Export failed (save still works): ' + e);
+    }
+  }
+
+  function revertCharacter():Void
+  {
+    if (originalJson == '') return;
+
+    try
+    {
+      copyFields(Json.parse(originalJson), data);
+    }
+    catch (e:Dynamic)
+    {
+      status('Could not revert.');
+      return;
+    }
+
+    rebuildCharacter();
+    buildFields();
+
+    status('Reverted. SAVE to keep the revert.');
+  }
+
+  /**
+   * Copy every field of `source` onto `target`, in place, so anything already
+   * holding a reference to `target` sees the new values.
+   */
+  function copyFields(source:Dynamic, target:Dynamic):Void
+  {
+    if (source == null || target == null) return;
+
+    for (field in Reflect.fields(source))
+    {
+      Reflect.setField(target, field, Reflect.field(source, field));
+    }
+  }
+
+  function exitEditor():Void
+  {
+    FlxG.switchState(function() {
+      return new funkin.ui.mainmenu.MainMenuState();
+    });
+  }
+
+  function status(message:String):Void
+  {
+    if (statusText != null) statusText.text = message;
+  }
+
+  // ---------------------------------------------------------------- update
+
+  function update(elapsed:Float):Void
+  {
+    super.update(elapsed);
+
+    if (reloadTimer > 0)
+    {
+      reloadTimer = reloadTimer - elapsed;
+      if (reloadTimer <= 0)
+      {
+        reloadTimer = -1.0;
+        rebuildCharacter();
+      }
+    }
+
+    handlePointer();
+    refreshText();
+  }
+
+  function handlePointer():Void
+  {
+    for (touch in FlxG.touches.list)
+    {
+      if (touch == null || !touch.justPressed) continue;
+
+      var position:Dynamic = touch.getWorldPosition(camUI);
+      if (pressAt(position.x, position.y)) return;
+    }
+
+    if (FlxG.mouse != null && FlxG.mouse.justPressed)
+    {
+      var position:Dynamic = FlxG.mouse.getWorldPosition(camUI);
+      pressAt(position.x, position.y);
+    }
+  }
+
+  function pressAt(x:Float, y:Float):Bool
+  {
+    for (button in buttons)
+    {
+      var sprite:Dynamic = button.sprite;
+
+      if (x < sprite.x - 6 || x > sprite.x + sprite.width + 6) continue;
+      if (y < sprite.y - 6 || y > sprite.y + sprite.height + 6) continue;
+
+      button.action();
+      return true;
+    }
+
+    return false;
+  }
+
+  function refreshText():Void
+  {
+    if (headerText != null && charIds.length > 0)
+    {
+      headerText.text = 'CHARACTER EDITOR   ' + charIds[charIndex] + '   (' + (charIndex + 1) + '/' + charIds.length + ')';
+    }
+
+    if (animText != null)
+    {
+      var animName:String = (animNames.length > 0) ? animNames[animIndex] : '(no animations)';
+      animText.text = 'ANIM: ' + animName + '   PROPS: ' + (scroll + 1) + '-' + Math.min(scroll + ROWS, fields.length) + ' of ' + fields.length;
+    }
+
+    for (i in 0...rowLabels.length)
+    {
+      var index:Int = scroll + i;
+
+      if (index >= fields.length)
+      {
+        rowLabels[i].text = '';
+        continue;
+      }
+
+      var field:Dynamic = fields[index];
+      var value:Dynamic = field.get();
+
+      if (value == null) value = '-';
+
+      rowLabels[i].text = field.label + ':  ' + value;
+
+      // Read-only rows are dimmed, since their arrows do nothing.
+      if (field.set == null) rowLabels[i].color = 0xFF888888;
+      else rowLabels[i].color = 0xFFFFFFFF;
+    }
+  }
+}

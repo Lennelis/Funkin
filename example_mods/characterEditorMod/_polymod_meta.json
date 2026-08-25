@@ -1,0 +1,12 @@
+{
+  "title": "Character Editor",
+  "description": "A character editor that runs from a mod script, with an entry in the Options menu.",
+  "contributors": [
+    {
+      "name": "lennelis"
+    }
+  ],
+  "api_version": "0.8.0",
+  "mod_version": "1.0.0",
+  "license": "Apache-2.0"
+}

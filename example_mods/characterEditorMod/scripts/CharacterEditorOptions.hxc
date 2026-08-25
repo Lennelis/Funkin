@@ -1,0 +1,60 @@
+import flixel.FlxG;
+import funkin.modding.module.Module;
+import funkin.ui.ScriptedMusicBeatState;
+import funkin.ui.options.OptionsState;
+
+/**
+ * Adds a CHARACTER EDITOR entry to the Options menu.
+ */
+class CharacterEditorOptions extends Module
+{
+  /**
+   * The class name of the editor state, as Polymod registered it.
+   */
+  var EDITOR_CLASS:String = 'CharacterEditorState';
+
+  public function new(moduleId:String)
+  {
+    super(moduleId);
+  }
+
+  function onStateChangeEnd(event):Void
+  {
+    if (event == null || event.targetState == null) return;
+    if (!Std.isOfType(event.targetState, OptionsState)) return;
+
+    // `optionsCodex` holds the menu pages; 'options' is the top level one.
+    var page:Dynamic = null;
+
+    try
+    {
+      page = event.targetState.optionsCodex.pages.get('options');
+    }
+    catch (e:Dynamic)
+    {
+      trace('[CharEditor] Could not reach the options page.');
+      return;
+    }
+
+    if (page == null) return;
+
+    // OptionsMenu.createItem handles positioning and centering for us.
+    page.createItem('CHARACTER EDITOR', function() {
+      openEditor();
+    }, false);
+  }
+
+  function openEditor():Void
+  {
+    try
+    {
+      FlxG.switchState(function() {
+        return ScriptedMusicBeatState.init(EDITOR_CLASS);
+      });
+    }
+    catch (e:Dynamic)
+    {
+      trace('[CharEditor] Could not open ' + EDITOR_CLASS + ': ' + e);
+    }
+  }
+}

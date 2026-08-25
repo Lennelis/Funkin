@@ -1,0 +1,75 @@
+import funkin.modding.module.Module;
+import funkin.play.character.CharacterDataParser;
+import funkin.save.Save;
+import haxe.Json;
+
+/**
+ * Applies character edits saved by the editor.
+ *
+ * The character cache is loaded before modules are created (InitState line 304,
+ * modules at 310), so onCreate is early enough to change the data every
+ * character in the game is later built from.
+ */
+class CharacterOverridesModule extends Module
+{
+  /**
+   * Must match the prefix the editor saves under.
+   */
+  var SAVE_PREFIX:String = 'CharEdit:';
+
+  public function new(moduleId:String)
+  {
+    // Low priority number so this runs before other modules touch characters.
+    super(moduleId, 1);
+  }
+
+  function onCreate(event):Void
+  {
+    applyAll();
+  }
+
+  /**
+   * Copy every saved character's data over the cached data, in place.
+   */
+  public function applyAll():Void
+  {
+    var ids:Array<String> = CharacterDataParser.listCharacterIds();
+    if (ids == null) return;
+
+    var applied:Int = 0;
+
+    for (id in ids)
+    {
+      var saved:Dynamic = Save.instance.modOptions.get(SAVE_PREFIX + id);
+      if (saved == null) continue;
+
+      var data:Dynamic = CharacterDataParser.fetchCharacterData(id);
+      if (data == null) continue;
+
+      try
+      {
+        copyFields(Json.parse(saved), data);
+        applied = applied + 1;
+      }
+      catch (e:Dynamic)
+      {
+        trace('[CharEditor] Bad saved data for ' + id + ', skipping.');
+      }
+    }
+
+    if (applied > 0) trace('[CharEditor] Applied edits to ' + applied + ' character(s).');
+  }
+
+  /**
+   * In place, so anything already holding the cached object sees the new values.
+   */
+  function copyFields(source:Dynamic, target:Dynamic):Void
+  {
+    if (source == null || target == null) return;
+
+    for (field in Reflect.fields(source))
+    {
+      Reflect.setField(target, field, Reflect.field(source, field));
+    }
+  }
+}
