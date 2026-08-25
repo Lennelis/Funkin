@@ -6,6 +6,7 @@ import funkin.play.character.CharacterDataParser;
 import funkin.save.Save;
 import funkin.ui.MusicBeatState;
 import funkin.util.FileUtil;
+import funkin.util.ReflectUtil;
 import haxe.Json;
 
 /**
@@ -359,7 +360,32 @@ class CharacterEditorState extends MusicBeatState
   {
     if (character == null || animNames.length == 0) return;
 
-    character.playAnimation(animNames[animIndex], true);
+    playAnim(animNames[animIndex]);
+  }
+
+  /**
+   * Scripted characters override playAnimation and declare it without default
+   * values, and hscript won't fill those in, so pass every parameter.
+   */
+  function playAnim(name:String):Void
+  {
+    if (character == null) return;
+
+    try
+    {
+      character.playAnimation(name, true, false, false);
+    }
+    catch (e:Dynamic)
+    {
+      try
+      {
+        character.playAnimation(name, true, false);
+      }
+      catch (e2:Dynamic)
+      {
+        trace('[CharEditor] Could not play animation ' + name + ': ' + e2);
+      }
+    }
   }
 
   // ---------------------------------------------------------------- fields
@@ -370,22 +396,23 @@ class CharacterEditorState extends MusicBeatState
   }
 
   /**
-   * A float stored inside an array, like `offsets[0]`. Creates the array if needed.
+   * A float stored inside an array, like `offsets[0]`.
+   *
+   * Takes accessors for the array itself rather than a field name: `Reflect` is
+   * an import alias, and aliases don't resolve inside anonymous functions.
    */
-  function addArrayField(label:String, owner:Dynamic, key:String, index:Int, stepSize:Float):Void
+  function addArrayField(label:String, getArray:Dynamic, setArray:Dynamic, index:Int, stepSize:Float):Void
   {
-    var target:Dynamic = owner;
-
     addField(label, 'float', function() {
-      var array:Dynamic = Reflect.field(target, key);
+      var array:Dynamic = getArray();
       if (array == null) return 0.0;
       return array[index];
     }, function(value) {
-      var array:Dynamic = Reflect.field(target, key);
+      var array:Dynamic = getArray();
       if (array == null)
       {
         array = [0.0, 0.0];
-        Reflect.setField(target, key, array);
+        setArray(array);
       }
       array[index] = value;
     }, stepSize, null);
@@ -452,10 +479,10 @@ class CharacterEditorState extends MusicBeatState
       return d.startingAnimation;
     }, null, 0, null);
 
-    addArrayField('offsets X', d, 'offsets', 0, 1);
-    addArrayField('offsets Y', d, 'offsets', 1, 1);
-    addArrayField('cameraOffsets X', d, 'cameraOffsets', 0, 1);
-    addArrayField('cameraOffsets Y', d, 'cameraOffsets', 1, 1);
+    addArrayField('offsets X', function() { return d.offsets; }, function(value) { d.offsets = value; }, 0, 1);
+    addArrayField('offsets Y', function() { return d.offsets; }, function(value) { d.offsets = value; }, 1, 1);
+    addArrayField('cameraOffsets X', function() { return d.cameraOffsets; }, function(value) { d.cameraOffsets = value; }, 0, 1);
+    addArrayField('cameraOffsets Y', function() { return d.cameraOffsets; }, function(value) { d.cameraOffsets = value; }, 1, 1);
 
     buildHealthIconFields(d);
     buildAnimationFields(d);
@@ -512,8 +539,8 @@ class CharacterEditorState extends MusicBeatState
       icon.isPixel = value;
     }, 0, null);
 
-    addArrayField('icon offsets X', icon, 'offsets', 0, 1);
-    addArrayField('icon offsets Y', icon, 'offsets', 1, 1);
+    addArrayField('icon offsets X', function() { return icon.offsets; }, function(value) { icon.offsets = value; }, 0, 1);
+    addArrayField('icon offsets Y', function() { return icon.offsets; }, function(value) { icon.offsets = value; }, 1, 1);
   }
 
   function buildAnimationFields(d:Dynamic):Void
@@ -552,8 +579,8 @@ class CharacterEditorState extends MusicBeatState
         queueReload();
       }, 0, null);
 
-      addArrayField(prefix + 'offset X', anim, 'offsets', 0, 1);
-      addArrayField(prefix + 'offset Y', anim, 'offsets', 1, 1);
+      addArrayField(prefix + 'offset X', function() { return anim.offsets; }, function(value) { anim.offsets = value; }, 0, 1);
+      addArrayField(prefix + 'offset Y', function() { return anim.offsets; }, function(value) { anim.offsets = value; }, 1, 1);
     }
   }
 
@@ -639,7 +666,7 @@ class CharacterEditorState extends MusicBeatState
     if (character != null)
     {
       character.animationOffsets.set(name, [anim.offsets[0], anim.offsets[1]]);
-      character.playAnimation(name, true);
+      playAnim(name);
     }
 
     markDirty();
@@ -748,9 +775,9 @@ class CharacterEditorState extends MusicBeatState
   {
     if (source == null || target == null) return;
 
-    for (field in Reflect.fields(source))
+    for (field in ReflectUtil.fields(source))
     {
-      Reflect.setField(target, field, Reflect.field(source, field));
+      ReflectUtil.setField(target, field, ReflectUtil.field(source, field));
     }
   }
 

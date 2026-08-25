@@ -59,6 +59,23 @@ mobile, where the mods folder isn't writable from inside the app.
 Rebuilds are batched behind a 0.35s timer, so holding down `>` on `scale` doesn't rebuild
 the sprite on every tap.
 
+## hscript gotchas this ran into
+
+Worth knowing if you extend it:
+
+- **Abstracts vanish at runtime.** `camera.bgColor.alpha = 0` throws "Invalid access to
+  field alpha", because `FlxColor` is an abstract over `Int` and `.alpha` is compile-time
+  only. Assign whole colours as ints instead. Same story for `FlxColor.WHITE`,
+  `CharacterType.OTHER` and other enum/abstract statics.
+- **Import aliases don't resolve inside anonymous functions.** Polymod aliases `Reflect`
+  to `ReflectUtil`, and that alias works at method level but throws "Invalid access to
+  field Reflect" inside a closure. Import `funkin.util.ReflectUtil` and call it by its
+  real name, or avoid it in closures entirely.
+- **Scripted classes don't get default arguments.** Many base game characters are scripted
+  and override `playAnimation` declaring three parameters. Calling it with two throws
+  "Provided arguments are fewer than the required function parameters". Pass every
+  parameter when calling into anything that might be scripted.
+
 ## Notes
 
 - Edits are global: they apply to that character everywhere, in every song.
