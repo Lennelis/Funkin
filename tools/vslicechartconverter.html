@@ -700,7 +700,15 @@
             <input type="checkbox" id="cc-opt-erect" checked>
             <label for="cc-opt-erect">erect &amp; nightmare as a variation</label>
           </span>
+          <span class="switch">
+            <input type="checkbox" id="cc-opt-defaults">
+            <label for="cc-opt-defaults">default conversion</label>
+          </span>
         </div>
+        <p class="hint">Default conversion writes every song with the cast and stage the game ships
+          with — <code>bf</code>, <code>gf</code> and <code>dad</code> on <code>mainStage</code>.
+          Use it while the characters and stages from the old mod have not been ported yet, so the
+          songs load and play instead of erroring on a character that is not there.</p>
         <p class="hint">The old format has no song events, so the camera never moves unless something
           puts the events back. Ticking the first box adds a <code>FocusCamera</code> wherever
           <code>mustHitSection</code> flips, which is what the game's own importer does.</p>
@@ -804,6 +812,17 @@
             only knows two of them, so girlfriend is a guess.</p>
 
           <div class="field">
+            <label>sides</label>
+            <span class="switch">
+              <input type="checkbox" id="cc-swap">
+              <label for="cc-swap">swap who plays what</label>
+            </span>
+          </div>
+          <p class="hint">Tick this if the notes came out on the wrong character. Some charts mark
+            their must-hit sections the other way round, which puts every note on the opposite
+            strumline; this flips them all back, camera cuts included.</p>
+
+          <div class="field">
             <label for="cc-offset">inst offset</label>
             <input type="number" id="cc-offset" step="1" value="0">
           </div>
@@ -869,6 +888,44 @@
           <button class="btn" id="cc-mod-clear" type="button">Clear</button>
         </div>
         <div class="warn-box" id="cc-mod-warn" hidden></div>
+      </div>
+
+      <div class="panel-head"><h2 class="eyebrow">CONVERSION</h2></div>
+      <div class="panel-body">
+        <div class="switch-list">
+          <span class="switch">
+            <input type="checkbox" id="cc-mod-opt-camera" checked>
+            <label for="cc-mod-opt-camera">camera events from must-hit</label>
+          </span>
+          <span class="switch">
+            <input type="checkbox" id="cc-mod-opt-bpm" checked>
+            <label for="cc-mod-opt-bpm">keep BPM changes</label>
+          </span>
+          <span class="switch">
+            <input type="checkbox" id="cc-mod-opt-kinds" checked>
+            <label for="cc-mod-opt-kinds">keep note kinds</label>
+          </span>
+          <span class="switch">
+            <input type="checkbox" id="cc-mod-opt-dedupe" checked>
+            <label for="cc-mod-opt-dedupe">drop stacked duplicates</label>
+          </span>
+          <span class="switch">
+            <input type="checkbox" id="cc-mod-opt-erect" checked>
+            <label for="cc-mod-opt-erect">erect &amp; nightmare as a variation</label>
+          </span>
+          <span class="switch">
+            <input type="checkbox" id="cc-mod-defaults">
+            <label for="cc-mod-defaults">default conversion</label>
+          </span>
+          <span class="switch">
+            <input type="checkbox" id="cc-mod-swap">
+            <label for="cc-mod-swap">swap sides on every song</label>
+          </span>
+        </div>
+        <p class="hint">Default conversion writes every song with <code>bf</code>, <code>gf</code>
+          and <code>dad</code> on <code>mainStage</code>, for while the characters and stages have
+          not been ported over yet. Swap sides is for when the notes come out on the wrong
+          character — some charts mark their must-hit sections the other way round.</p>
       </div>
 
       <div class="panel-head"><h2 class="eyebrow">WHAT TO WRITE</h2></div>
@@ -993,6 +1050,16 @@
             <label for="cc-song-opponent2">opponent</label>
             <input type="text" id="cc-song-opponent2" spellcheck="false">
           </div>
+
+          <div class="field">
+            <label>sides</label>
+            <span class="switch">
+              <input type="checkbox" id="cc-song-swap2">
+              <label for="cc-song-swap2">swap who plays what</label>
+            </span>
+          </div>
+          <p class="hint" id="cc-song-swap-note">Tick this if this song's notes came out on the
+            wrong character.</p>
 
           <div class="stat-row" id="cc-song-stats"></div>
           <div class="warn-box" id="cc-song-warn" hidden></div>
@@ -1132,7 +1199,8 @@
       player: "bf",
       girlfriend: "gf",
       opponent: "dad",
-      offset: 0
+      offset: 0,
+      swapSides: false
     },
 
     // Fields the user has typed in themselves, so loading another file does not
@@ -1144,7 +1212,11 @@
       bpm: true,
       kinds: true,
       dedupe: true,
-      erect: true
+      erect: true,
+
+      // Write every song with the stock cast on the stock stage, for when the
+      // characters and stages of the old mod have not been ported yet.
+      defaults: false
     },
 
     outputs: [],
@@ -1161,6 +1233,19 @@
   }
 
   function round(value) { return Math.round(value * 10000) / 10000; }
+
+  /**
+   * Charts write their flags in whatever their editor felt like: true, 1,
+   * "true", "1". Reading only `=== true` puts every note of a section on the
+   * wrong side, so anything that means yes is treated as yes.
+   */
+  function flag(value) {
+    if (value === true || value === 1) return true;
+    if (typeof value !== "string") return false;
+
+    var text = value.trim().toLowerCase();
+    return text === "true" || text === "1" || text === "yes";
+  }
 
   function slug(value) {
     return String(value === null || value === undefined ? "" : value)
@@ -1225,6 +1310,32 @@
 
   function currentChart() { return state.charts[state.index] || null; }
 
+  var DEFAULT_CAST = { stage: "mainStage", player: "bf", girlfriend: "gf", opponent: "dad" };
+
+  /**
+   * The song as it will actually be written. With default conversion on, the
+   * cast and stage are replaced with the ones every copy of the game has, so a
+   * song whose characters have not been ported still loads and plays.
+   */
+  function effectiveSong(song) {
+    if (!state.opts.defaults) return song;
+
+    var copy = {};
+    Object.keys(song).forEach(function (key) { copy[key] = song[key]; });
+
+    copy.stage = DEFAULT_CAST.stage;
+    copy.player = DEFAULT_CAST.player;
+    copy.girlfriend = DEFAULT_CAST.girlfriend;
+    copy.opponent = DEFAULT_CAST.opponent;
+
+    return copy;
+  }
+
+  /** The same note on the other side of the screen. */
+  function flipData(data) {
+    return data >= STRUMLINE_SIZE ? data - STRUMLINE_SIZE : data + STRUMLINE_SIZE;
+  }
+
   function cssVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#000";
   }
@@ -1262,6 +1373,7 @@
         state.opts.kinds = parsed.opts.kinds !== false;
         state.opts.dedupe = parsed.opts.dedupe !== false;
         state.opts.erect = parsed.opts.erect !== false;
+        state.opts.defaults = parsed.opts.defaults === true;
       }
     } catch (err) { /* ignore malformed leftovers */ }
   }
@@ -1401,8 +1513,8 @@
   // --------------------------------------------------------------- conversion
 
   function noteKindOf(raw, report) {
-    if (raw === true) return "alt";
-    if (raw === false || raw === null || raw === undefined) return "";
+    if (raw === true || raw === 1) return "alt";
+    if (raw === false || raw === 0 || raw === null || raw === undefined) return "";
 
     if (typeof raw === "string") {
       var trimmed = raw.trim();
@@ -1439,7 +1551,7 @@
 
       // A BPM change lands on the section it belongs to, and changes how long
       // every section after it runs for, so it has to be applied first.
-      if (section.changeBPM === true && isFinite(num(section.bpm, NaN))) {
+      if (flag(section.changeBPM) && isFinite(num(section.bpm, NaN))) {
         var newBpm = num(section.bpm, bpm);
 
         if (newBpm > 0 && newBpm !== bpm) {
@@ -1456,7 +1568,10 @@
       var steps = num(section.lengthInSteps, 16);
       if (steps !== 16) report.oddSections++;
 
-      var mustHit = section.mustHitSection === true;
+      if (section.mustHitSection === undefined || section.mustHitSection === null) report.noMustHit++;
+      if (flag(section.gfSection)) report.gfSections++;
+
+      var mustHit = flag(section.mustHitSection);
       var sectionNotes = section.sectionNotes;
       var hasNotes = false;
 
@@ -1665,8 +1780,9 @@
     return characters;
   }
 
-  function buildChartData(group) {
+  function buildChartData(song, group) {
     var primary = primaryOf(group.charts);
+    var swap = !!song.swapSides;
 
     var scrollSpeed = {};
     var notes = {};
@@ -1674,7 +1790,7 @@
     group.charts.forEach(function (chart) {
       scrollSpeed[chart.difficulty] = chart.scrollSpeed;
       notes[chart.difficulty] = chart.notes.map(function (note) {
-        var out = { t: note.t, d: note.d };
+        var out = { t: note.t, d: swap ? flipData(note.d) : note.d };
         if (note.l > 0) out.l = note.l;
         if (note.k) out.k = note.k;
         return out;
@@ -1684,10 +1800,17 @@
     return {
       version: CHART_VERSION,
       scrollSpeed: scrollSpeed,
-      events: primary.events,
+      events: swap ? primary.events.map(flipEvent) : primary.events,
       notes: notes,
       generatedBy: GENERATED_BY
     };
+  }
+
+  /** A camera cut follows the notes when the sides are swapped. */
+  function flipEvent(event) {
+    if (event.e !== "FocusCamera" || !event.v || (event.v.char !== 0 && event.v.char !== 1)) return event;
+
+    return { t: event.t, e: event.e, v: { char: event.v.char === 0 ? 1 : 0 } };
   }
 
   /**
@@ -1712,7 +1835,7 @@
 
       files.push({
         name: chartFileName(song.songId, group.variation),
-        json: buildChartData(group)
+        json: buildChartData(song, group)
       });
     });
 
@@ -1727,7 +1850,7 @@
       return;
     }
 
-    state.outputs = buildSongFiles(state.song, state.charts);
+    state.outputs = buildSongFiles(effectiveSong(state.song), state.charts);
 
     state.outputs.push({
       name: "manifest.json",
@@ -2039,17 +2162,25 @@
   }
 
   function renderSongFields() {
+    // With default conversion on, the fields show what is actually written
+    // rather than what was read, and are held there.
+    var song = effectiveSong(state.song);
+    var locked = state.opts.defaults;
+
     $("cc-song-id").value = state.song.songId;
     $("cc-song-name").value = state.song.songName;
     $("cc-artist").value = state.song.artist;
     $("cc-charter").value = state.song.charter;
     $("cc-album").value = state.song.album;
-    $("cc-stage").value = state.song.stage;
     $("cc-note-style").value = state.song.noteStyle;
-    $("cc-player").value = state.song.player;
-    $("cc-girlfriend").value = state.song.girlfriend;
-    $("cc-opponent").value = state.song.opponent;
     $("cc-offset").value = String(state.song.offset);
+    $("cc-swap").checked = !!state.song.swapSides;
+
+    [["cc-stage", song.stage], ["cc-player", song.player],
+      ["cc-girlfriend", song.girlfriend], ["cc-opponent", song.opponent]].forEach(function (pair) {
+      $(pair[0]).value = pair[1];
+      $(pair[0]).disabled = locked;
+    });
   }
 
   function renderInspector() {
@@ -2111,6 +2242,17 @@
       warnings.push(plural(report.eventNotes, "event") + " left behind — the new format keeps"
         + " events in their own list, and there is no safe way to guess what most of them meant."
         + " The report lists them by name.");
+    }
+
+    if (report.noMustHit) {
+      warnings.push(plural(report.noMustHit, "section") + " never say which side plays, so their"
+        + " notes were read as the opponent's. If they came out on the wrong character, tick"
+        + " <b>swap who plays what</b>.");
+    }
+
+    if (report.gfSections) {
+      warnings.push(plural(report.gfSections, "section") + " marked as Girlfriend's. The game plays"
+        + " two strumlines, so those notes sit on the opponent's side and the opponent sings them.");
     }
 
     if (report.extraStrumlines) {
@@ -2175,7 +2317,7 @@
     $("cc-out").value = outputBody(state.outputs[state.outputIndex]);
   }
 
-  function renderReport(charts, files, songId) {
+  function renderReport(charts, files, songId, song) {
     var report = $("cc-report");
     report.innerHTML = "";
 
@@ -2258,6 +2400,16 @@
           "<code>" + escapeHtml(mapped || chart.info.stage) + "</code>" + (mapped ? " (renamed)" : ""));
       }
 
+      if (info.noMustHit) {
+        row(plural(info.noMustHit, "section") + " with no <code>mustHitSection</code>",
+          "read as the opponent's");
+      }
+
+      if (info.gfSections) {
+        row(plural(info.gfSections, "<code>gfSection</code>"),
+          "kept on the opponent's side; there is no third strumline", true);
+      }
+
       if (info.duplicates) row(plural(info.duplicates, "stacked duplicate"), "dropped", true);
       if (info.dropped) row(plural(info.dropped, "malformed note"), "dropped", true);
       if (info.wrapped) row(plural(info.wrapped, "note") + " above lane 7", "folded back into range");
@@ -2281,6 +2433,18 @@
         row("<code>needsVoices: false</code>", "the game looks for vocals anyway", true);
       }
     });
+
+    if (song) {
+      heading("This song");
+
+      if (state.opts.defaults) {
+        row("<code>" + escapeHtml(song.stage || "?") + "</code> and its cast",
+          "default conversion: <code>bf</code>, <code>gf</code>, <code>dad</code> on"
+          + " <code>mainStage</code>");
+      }
+
+      if (song.swapSides) row("the sides as the old chart had them", "swapped by hand");
+    }
 
     heading("Files written");
 
@@ -2430,16 +2594,18 @@
   function drawNotes(chart, geo, left, right) {
     var head = Math.min(geo.lane - 2, 15);
     var hold = Math.max(3, head * 0.36);
+    var swap = !!state.song.swapSides;
 
     for (var i = 0; i < chart.notes.length; i++) {
       var note = chart.notes[i];
       if (note.t + note.l < left) continue;
       if (note.t > right) break;
 
-      var lane = note.d % STRUMLINE_SIZE;
+      var data = swap ? flipData(note.d) : note.d;
+      var lane = data % STRUMLINE_SIZE;
       var colour = LANE_COLOURS[lane];
       var x = timeToX(note.t);
-      var y = laneY(note.d, geo) + (geo.lane - 1) / 2;
+      var y = laneY(data, geo) + (geo.lane - 1) / 2;
 
       if (note.l > 0) {
         ctx.fillStyle = colour;
@@ -2449,7 +2615,7 @@
       }
 
       ctx.fillStyle = colour;
-      ctx.globalAlpha = note.d >= STRUMLINE_SIZE ? 0.8 : 1;
+      ctx.globalAlpha = data >= STRUMLINE_SIZE ? 0.8 : 1;
       ctx.fillRect(x - head / 2, y - head / 2, head, head);
       ctx.globalAlpha = 1;
 
@@ -2498,8 +2664,10 @@
       ctx.stroke();
       ctx.setLineDash([]);
 
+      var onPlayer = state.song.swapSides ? event.v.char !== 0 : event.v.char === 0;
+
       ctx.fillStyle = "#4ED9E8";
-      ctx.fillText(event.v.char === 0 ? "cam player" : "cam opponent", x + 4, top + 1);
+      ctx.fillText(onPlayer ? "cam player" : "cam opponent", x + 4, top + 1);
     });
   }
 
@@ -2895,8 +3063,8 @@
     var strumLines = json.strumLines || [];
     var noteTypes = json.noteTypes || [];
 
-    strumLines.forEach(function (line) {
-      var kindOfLine = num(line.type, 0);
+    strumLines.forEach(function (line, index) {
+      var kindOfLine = sideOfStrumline(line, index);
       var lineNotes = line.notes || [];
 
       // 0 is the opponent, 1 is the player, and anything else is an extra
@@ -2982,8 +3150,8 @@
     report.sections = strumLines.length;
 
     var characters = [];
-    strumLines.forEach(function (line) {
-      characters[num(line.type, 0)] = (line.characters || [])[0] || "";
+    strumLines.forEach(function (line, index) {
+      characters[sideOfStrumline(line, index)] = (line.characters || [])[0] || "";
     });
 
     return {
@@ -3013,6 +3181,28 @@
     };
   }
 
+  /**
+   * Which side of the screen a Codename strumline plays on: 0 the opponent,
+   * 1 the player, 2 an extra. The type is normally there, but a chart saved
+   * without it would put every note on the opponent, so the position and the
+   * order the strumlines are written in stand in for it.
+   */
+  function sideOfStrumline(line, index) {
+    var type = line ? line.type : null;
+
+    if (type === 0 || type === 1 || type === 2) return type;
+    if (typeof type === "string" && /^[012]$/.test(type)) return parseInt(type, 10);
+
+    var position = String((line && (line.position || line.name)) || "").toLowerCase();
+
+    if (/^(boyfriend|bf|player)/.test(position)) return 1;
+    if (/^(dad|opponent|enemy)/.test(position)) return 0;
+    if (/^(girlfriend|gf)/.test(position)) return 2;
+
+    // Charts are written opponent first, player second, by convention.
+    return index === 1 ? 1 : (index === 0 ? 0 : 2);
+  }
+
   function blankReport() {
     return {
       sections: 0,
@@ -3030,7 +3220,9 @@
       cameraEvents: 0,
       oddSections: 0,
       extraStrumlines: 0,
-      extraNotes: 0
+      extraNotes: 0,
+      noMustHit: 0,
+      gfSections: 0
     };
   }
 
@@ -3240,6 +3432,7 @@
       girlfriend: previous.girlfriend || info.girlfriend || "gf",
       opponent: previous.opponent || info.opponent || "dad",
       offset: num(info.offset, 0),
+      swapSides: previous.swapSides === true,
       opponentVocals: null,
       playerVocals: null
     };
@@ -3253,8 +3446,7 @@
    * character, so a lone Voices file is given to the player and the opponent is
    * told it has none — otherwise the same track plays twice, on top of itself.
    */
-  function audioPlan(modSong) {
-    var settings = modSong.settings;
+  function audioPlan(modSong, settings) {
     var files = [];
     var notes = [];
 
@@ -3355,15 +3547,18 @@
     songs.forEach(function (song) {
       song.settings.charter = settings.author || "";
 
-      var plan = audioPlan(song);
+      // The vocal file names have to match the characters the metadata names,
+      // so both are worked out from the same settings.
+      var effective = effectiveSong(song.settings);
+      var plan = audioPlan(song, effective);
+
       song.plan = plan;
+      effective.opponentVocals = plan.opponentVocals;
+      effective.playerVocals = plan.playerVocals;
 
-      song.settings.opponentVocals = plan.opponentVocals;
-      song.settings.playerVocals = plan.playerVocals;
+      var id = effective.songId;
 
-      var id = song.settings.songId;
-
-      buildSongFiles(song.settings, song.converted.charts).forEach(function (file) {
+      buildSongFiles(effective, song.converted.charts).forEach(function (file) {
         outputs.push({ path: root + "/data/songs/" + id + "/" + file.name, json: file.json, song: song });
       });
 
@@ -3406,7 +3601,7 @@
     ];
 
     songs.forEach(function (song) {
-      var plan = song.plan || audioPlan(song);
+      var plan = song.plan || audioPlan(song, effectiveSong(song.settings));
 
       lines.push(song.settings.songName + " (" + song.settings.songId + ")");
 
@@ -3617,6 +3812,11 @@
     $("cc-mod-polymod").checked = settings.polymod;
     $("cc-mod-level").value = settings.level;
     $("cc-mod-title-asset").value = settings.titleAsset;
+    var converted = convertedSongs();
+
+    $("cc-mod-swap").checked = converted.length > 0 && converted.every(function (song) {
+      return song.settings.swapSides === true;
+    });
 
     var story = settings.level === "story";
     $("cc-mod-title-asset-row").hidden = !story;
@@ -3633,16 +3833,21 @@
 
     if (!ready) return;
 
-    var settings = song.settings;
+    var settings = effectiveSong(song.settings);
+    var locked = state.opts.defaults;
 
-    $("cc-song-id2").value = settings.songId;
-    $("cc-song-name2").value = settings.songName;
-    $("cc-song-artist2").value = settings.artist;
-    $("cc-song-stage2").value = settings.stage;
-    $("cc-song-style2").value = settings.noteStyle;
-    $("cc-song-player2").value = settings.player;
-    $("cc-song-gf2").value = settings.girlfriend;
-    $("cc-song-opponent2").value = settings.opponent;
+    $("cc-song-id2").value = song.settings.songId;
+    $("cc-song-name2").value = song.settings.songName;
+    $("cc-song-artist2").value = song.settings.artist;
+    $("cc-song-style2").value = song.settings.noteStyle;
+    $("cc-song-swap2").checked = !!song.settings.swapSides;
+
+    [["cc-song-stage2", settings.stage], ["cc-song-player2", settings.player],
+      ["cc-song-gf2", settings.girlfriend], ["cc-song-opponent2", settings.opponent]]
+      .forEach(function (pair) {
+        $(pair[0]).value = pair[1];
+        $(pair[0]).disabled = locked;
+      });
 
     var stats = $("cc-song-stats");
     stats.innerHTML = "";
@@ -4043,15 +4248,36 @@
     });
   }
 
-  function bindSwitch(id, key) {
-    var input = $(id);
-    input.checked = state.opts[key];
+  /**
+   * One option, two checkboxes: the same switches sit in both modes, so
+   * whichever one is clicked sets the option and the other follows.
+   */
+  function bindOption(key, ids) {
+    ids.forEach(function (id) {
+      var input = $(id);
+      input.checked = state.opts[key];
 
-    input.addEventListener("change", function () {
-      state.opts[key] = input.checked;
-      rebuildAll();
-      render();
-      save();
+      input.addEventListener("change", function () {
+        state.opts[key] = input.checked;
+
+        ids.forEach(function (other) { $(other).checked = input.checked; });
+        save();
+
+        if (state.mode === "mod") {
+          renderModFields();
+
+          // The options change how the charts themselves are read, so an
+          // already converted mod is put back through the converter.
+          if (convertedSongs().length) convertSelected();
+          else renderMod();
+
+          return;
+        }
+
+        rebuildAll();
+        renderSongFields();
+        render();
+      });
     });
   }
 
@@ -4309,7 +4535,7 @@
     $("cc-report-open").addEventListener("click", function () {
       if (state.mode === "chart") {
         renderReport(state.charts, state.outputs.map(function (output) { return output.name; }),
-          state.song.songId);
+          state.song.songId, state.song);
       } else {
         var song = selectedSong() || convertedSongs()[0];
         if (!song || !song.converted) return;
@@ -4318,7 +4544,7 @@
 
         renderReport(song.converted.charts,
           buildSongFiles(song.settings, song.converted.charts).map(function (file) { return file.name; }),
-          song.settings.songId);
+          song.settings.songId, song.settings);
       }
 
       overlay.hidden = false;
@@ -4387,6 +4613,21 @@
     });
 
     $("cc-mod-clear").addEventListener("click", clearMod);
+
+    $("cc-mod-swap").addEventListener("change", function () {
+      var wanted = this.checked;
+      convertedSongs().forEach(function (song) { song.settings.swapSides = wanted; });
+      renderMod();
+    });
+
+    $("cc-song-swap2").addEventListener("change", function () {
+      var song = selectedSong();
+      if (!song || !song.converted) return;
+
+      song.settings.swapSides = this.checked;
+      renderModFields();
+      renderMod();
+    });
 
     // The song panel edits one converted song and rebuilds only what it touches.
     function songField(id, key, transform) {
@@ -4473,11 +4714,17 @@
       render();
     });
 
-    bindSwitch("cc-opt-camera", "camera");
-    bindSwitch("cc-opt-bpm", "bpm");
-    bindSwitch("cc-opt-kinds", "kinds");
-    bindSwitch("cc-opt-dedupe", "dedupe");
-    bindSwitch("cc-opt-erect", "erect");
+    bindOption("camera", ["cc-opt-camera", "cc-mod-opt-camera"]);
+    bindOption("bpm", ["cc-opt-bpm", "cc-mod-opt-bpm"]);
+    bindOption("kinds", ["cc-opt-kinds", "cc-mod-opt-kinds"]);
+    bindOption("dedupe", ["cc-opt-dedupe", "cc-mod-opt-dedupe"]);
+    bindOption("erect", ["cc-opt-erect", "cc-mod-opt-erect"]);
+    bindOption("defaults", ["cc-opt-defaults", "cc-mod-defaults"]);
+
+    $("cc-swap").addEventListener("change", function () {
+      state.song.swapSides = this.checked;
+      render();
+    });
 
     bindDrop();
     bindStage();
