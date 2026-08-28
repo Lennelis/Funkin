@@ -520,12 +520,126 @@
 
   .sr { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>
+<style>
+  /* ---------------------------------------------------------- mod converter */
+
+  .mode-switch { display: flex; gap: 4px; }
+
+  .mode-switch .btn[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #FFF;
+  }
+
+  .workspace[hidden] { display: none; }
+
+  .sheet-wide { width: min(880px, 100%); }
+
+  .sheet-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .sheet-tools input[type="search"] {
+    flex: 1;
+    min-width: 120px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    font-size: 13.5px;
+  }
+
+  .sheet-tools .count { margin-left: auto; }
+  .sheet-foot .hint { margin-right: auto; }
+  .sheet-empty { padding: 24px 12px; text-align: center; color: var(--ink-faint); font-size: 13.5px; }
+
+  .pick {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .pick:hover { background: var(--panel-2); }
+  .pick input { accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+  .pick-text { min-width: 0; }
+
+  .pick-title {
+    display: block;
+    font-size: 13.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pick-note { display: block; font-size: 12px; color: var(--ink-faint); }
+  .pick-note b { color: var(--accent-2); font-weight: 400; }
+  .pick-note .miss { color: var(--warn); }
+
+  .pick-count {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pick[data-blocked="true"] { opacity: .45; }
+
+  /* ------------------------------------------------------------- file tree */
+
+  .tree-wrap { position: relative; flex: 1; min-height: 0; overflow: auto; }
+
+  .tree {
+    padding: 14px 16px 20px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: #C9BFDE;
+  }
+
+  .tree-row { display: grid; grid-template-columns: 1fr auto; gap: 14px; }
+
+  .tree-row.clickable { cursor: pointer; border-radius: 4px; }
+  .tree-row.clickable:hover { background: rgba(239, 234, 247, .07); }
+  .tree-row[aria-selected="true"] { background: rgba(255, 79, 163, .16); }
+
+  .tree-dir { color: #7A6F94; padding-top: 8px; }
+  .tree-name b { color: #EFEAF7; font-weight: 400; }
+  .tree-name i { color: #4ED9E8; font-style: normal; }
+  .tree-size { color: #7A6F94; font-variant-numeric: tabular-nums; }
+  .tree-empty { padding: 40px 16px; text-align: center; color: #7A6F94; font-family: var(--font-ui); }
+
+  #cc-file-select {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+
+  #cc-file-select[hidden] { display: none; }
+  .file-tabs[hidden] { display: none; }
+</style>
 
 <div class="shell">
   <header class="topbar">
     <div class="wordmark">V-SLICE <span>CHART CONVERTER</span></div>
 
     <div class="topbar-tools">
+      <div class="mode-switch" role="group" aria-label="What to convert">
+        <button class="btn on" id="cc-mode-chart" type="button" aria-pressed="true">One chart</button>
+        <button class="btn" id="cc-mode-mod" type="button" aria-pressed="false">Whole mod</button>
+      </div>
       <button class="btn" id="cc-report-open" type="button" disabled>Report</button>
       <button class="btn" id="cc-clear" type="button" disabled>Clear</button>
     </div>
@@ -537,7 +651,7 @@
     </div>
   </header>
 
-  <div class="workspace">
+  <div class="workspace" id="cc-chart-workspace">
     <section class="rail" aria-label="Charts">
       <div class="panel-head"><h2 class="eyebrow">LEGACY CHARTS</h2></div>
       <div class="panel-body">
@@ -733,6 +847,159 @@
     </section>
   </div>
 
+
+  <div class="workspace" id="cc-mod-workspace" hidden>
+    <section class="rail" aria-label="Mod folder">
+      <div class="panel-head"><h2 class="eyebrow">MOD FOLDER</h2></div>
+      <div class="panel-body">
+        <div class="drop" id="cc-mod-drop" tabindex="0" role="button" aria-label="Load a mod folder">
+          <strong>Drop a mod folder</strong>
+          <span>Psych, Codename or base game</span>
+        </div>
+        <input type="file" id="cc-mod-input" multiple webkitdirectory directory class="sr">
+        <p class="hint" id="cc-mod-hint">Drag the folder itself onto the box, or click to pick it.
+          It reads <code>data/&lt;song&gt;/</code> and <code>songs/&lt;song&gt;/</code> for Psych,
+          and <code>songs/&lt;song&gt;/charts/</code> for Codename. Nothing is uploaded — the files
+          never leave this page.</p>
+
+        <div class="stat-row" id="cc-mod-stats"></div>
+
+        <div class="btn-row" id="cc-mod-tools" hidden>
+          <button class="btn btn-primary" id="cc-pick-open" type="button">Choose songs</button>
+          <button class="btn" id="cc-mod-clear" type="button">Clear</button>
+        </div>
+        <div class="warn-box" id="cc-mod-warn" hidden></div>
+      </div>
+
+      <div class="panel-head"><h2 class="eyebrow">WHAT TO WRITE</h2></div>
+      <div class="panel-body">
+        <div class="switch-list">
+          <span class="switch">
+            <input type="checkbox" id="cc-mod-audio" checked>
+            <label for="cc-mod-audio">copy the audio in</label>
+          </span>
+          <span class="switch">
+            <input type="checkbox" id="cc-mod-polymod" checked>
+            <label for="cc-mod-polymod">independent mod (write <code>_polymod_meta.json</code>)</label>
+          </span>
+        </div>
+        <p class="hint" id="cc-mod-audio-note">The audio is the whole weight of a mod. Untick it and
+          the zip holds the charts alone, plus a list of which file to copy where.</p>
+
+        <div class="field">
+          <label for="cc-mod-level">appears in</label>
+          <select id="cc-mod-level">
+            <option value="freeplay">Freeplay only</option>
+            <option value="story">Story week</option>
+            <option value="none">nothing (I'll do it)</option>
+          </select>
+        </div>
+        <p class="hint" id="cc-mod-level-note">Freeplay lists songs by walking the levels, so a song
+          in no level cannot be picked in game at all. Freeplay only writes a hidden level, which
+          needs no artwork.</p>
+
+        <div class="field" id="cc-mod-title-asset-row" hidden>
+          <label for="cc-mod-title-asset">title art</label>
+          <input type="text" id="cc-mod-title-asset" spellcheck="false"
+            value="storymenu/titles/week1">
+        </div>
+        <p class="hint" id="cc-mod-title-note" hidden>The image at the top of the story menu, under
+          <code>images/</code>. It falls back to week 1's until you draw your own.</p>
+      </div>
+    </section>
+
+    <section class="stage-col" aria-label="The mod that comes out">
+      <div class="tree-wrap">
+        <div class="tree" id="cc-tree" role="list"></div>
+      </div>
+
+      <div class="transport">
+        <button class="btn" id="cc-pick-open-2" type="button" disabled>Choose songs</button>
+
+        <div class="divider"></div>
+
+        <span class="transport-label" id="cc-tree-label">no mod loaded</span>
+      </div>
+    </section>
+
+    <section class="inspector" aria-label="Mod settings">
+      <div class="panel-head"><h2 class="eyebrow">MOD</h2></div>
+      <div class="panel-body">
+        <div class="group">
+          <div class="field">
+            <label for="cc-mod-id">folder</label>
+            <input type="text" id="cc-mod-id" spellcheck="false" placeholder="my-mod">
+          </div>
+          <p class="hint">The folder name inside <code>mods/</code>. Everything else hangs off it.</p>
+
+          <div class="field">
+            <label for="cc-mod-title">title</label>
+            <input type="text" id="cc-mod-title" spellcheck="false" placeholder="My Mod">
+          </div>
+          <div class="field">
+            <label for="cc-mod-author">author</label>
+            <input type="text" id="cc-mod-author" spellcheck="false" placeholder="you">
+          </div>
+          <p class="hint">Shown in the mod menu, and written as the charter on every song.</p>
+
+          <div class="field">
+            <label for="cc-mod-version">version</label>
+            <input type="text" id="cc-mod-version" spellcheck="false" value="1.0.0">
+          </div>
+          <div class="field">
+            <label for="cc-mod-desc">description</label>
+            <input type="text" id="cc-mod-desc" spellcheck="false" placeholder="Converted charts.">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-head">
+        <h2 class="eyebrow">SELECTED SONG</h2>
+        <span class="count" id="cc-song-engine"></span>
+      </div>
+      <div class="panel-body">
+        <p class="empty-note" id="cc-song-empty">Pick a song in the list to check it over.</p>
+
+        <div class="group" id="cc-song-fields" hidden>
+          <div class="field">
+            <label for="cc-song-id2">song id</label>
+            <input type="text" id="cc-song-id2" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="cc-song-name2">song name</label>
+            <input type="text" id="cc-song-name2" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="cc-song-artist2">artist</label>
+            <input type="text" id="cc-song-artist2" spellcheck="false" placeholder="Unknown">
+          </div>
+          <div class="field">
+            <label for="cc-song-stage2">stage</label>
+            <input type="text" id="cc-song-stage2" spellcheck="false" list="cc-stages">
+          </div>
+          <div class="field">
+            <label for="cc-song-style2">note style</label>
+            <input type="text" id="cc-song-style2" spellcheck="false" list="cc-note-styles">
+          </div>
+          <div class="field">
+            <label for="cc-song-player2">player</label>
+            <input type="text" id="cc-song-player2" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="cc-song-gf2">girlfriend</label>
+            <input type="text" id="cc-song-gf2" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="cc-song-opponent2">opponent</label>
+            <input type="text" id="cc-song-opponent2" spellcheck="false">
+          </div>
+
+          <div class="stat-row" id="cc-song-stats"></div>
+          <div class="warn-box" id="cc-song-warn" hidden></div>
+        </div>
+      </div>
+    </section>
+  </div>
   <section class="drawer" aria-label="Converted files">
     <div class="drawer-head">
       <h2 class="eyebrow">V-SLICE FILES</h2>
@@ -740,13 +1007,18 @@
         <button class="btn" id="cc-copy" type="button" disabled>Copy</button>
         <button class="btn" id="cc-save-one" type="button" disabled>Save this file</button>
         <button class="btn btn-primary" id="cc-save-fnfc" type="button" disabled>Save .fnfc</button>
+        <button class="btn btn-primary" id="cc-save-mod" type="button" hidden disabled>Save mod .zip</button>
       </div>
     </div>
     <div class="drawer-body">
       <div class="file-tabs" id="cc-file-tabs"></div>
+      <select id="cc-file-select" hidden aria-label="Which converted file to show"></select>
       <p class="hint" id="cc-out-hint">The pair goes in <code>songs/&lt;id&gt;/</code> in your mod,
         next to the audio. The <code>.fnfc</code> is the same files zipped up for the chart editor —
         it carries no audio, so the editor will ask you for the instrumental when it opens.</p>
+      <p class="hint" id="cc-mod-out-hint" hidden>Unzip this straight into your <code>mods/</code>
+        folder. Every path below is where the game goes looking, so nothing needs moving
+        afterwards.</p>
       <textarea id="cc-out" spellcheck="false" readonly aria-label="Converted file contents"></textarea>
     </div>
   </section>
@@ -770,6 +1042,32 @@
 </div>
 
 <div class="toast" id="cc-toast" role="status" aria-live="polite"></div>
+
+<div class="overlay" id="cc-pick-overlay" hidden role="dialog" aria-modal="true"
+  aria-labelledby="cc-pick-title">
+  <div class="sheet sheet-wide">
+    <div class="sheet-head">
+      <h2 id="cc-pick-title">Songs in this mod</h2>
+      <p>Everything with a chart in it. Tick the ones you want carried over — the rest are left
+        where they are.</p>
+    </div>
+
+    <div class="sheet-tools">
+      <input type="search" id="cc-pick-search" placeholder="filter by name" aria-label="Filter songs">
+      <button class="btn" id="cc-pick-all" type="button">Select all</button>
+      <button class="btn" id="cc-pick-none" type="button">Select none</button>
+      <span class="count"><b id="cc-pick-count">0</b> of <b id="cc-pick-total">0</b></span>
+    </div>
+
+    <div class="sheet-list" id="cc-pick-list"></div>
+
+    <div class="sheet-foot">
+      <span class="hint" id="cc-pick-note"></span>
+      <button class="btn" id="cc-pick-close" type="button">Close</button>
+      <button class="btn btn-primary" id="cc-pick-convert" type="button">Convert selected</button>
+    </div>
+  </div>
+</div>
 
 <script>
 (function () {
@@ -817,6 +1115,9 @@
   var BASE_ZOOM = 0.05; // pixels per millisecond at 100%
 
   var state = {
+    // "chart" converts one file at a time; "mod" takes a whole folder.
+    mode: "chart",
+
     charts: [],
     index: -1,
 
@@ -997,13 +1298,13 @@
       : DEFAULT_VARIATION;
   }
 
-  function metadataFileName(variation) {
-    var id = state.song.songId || "song";
+  function metadataFileName(songId, variation) {
+    var id = songId || "song";
     return id + "-metadata" + (variation === DEFAULT_VARIATION ? "" : "-" + variation) + ".json";
   }
 
-  function chartFileName(variation) {
-    var id = state.song.songId || "song";
+  function chartFileName(songId, variation) {
+    var id = songId || "song";
     return id + "-chart" + (variation === DEFAULT_VARIATION ? "" : "-" + variation) + ".json";
   }
 
@@ -1066,6 +1367,7 @@
   function makeChart(song, sections, difficulty, fileName, speed) {
     var chart = {
       id: nextId++,
+      engine: "legacy",
       source: fileName,
       difficulty: difficulty,
       scrollSpeed: Math.max(0.1, num(speed, 1)),
@@ -1121,22 +1423,7 @@
    * has to be re-read from disk.
    */
   function convert(chart) {
-    var report = {
-      sections: 0,
-      rawNotes: 0,
-      notes: 0,
-      holds: 0,
-      flipped: 0,
-      wrapped: 0,
-      eventNotes: 0,
-      psychEvents: {},
-      kinds: {},
-      dropped: 0,
-      duplicates: 0,
-      bpmChanges: 0,
-      cameraEvents: 0,
-      oddSections: 0
-    };
+    var report = blankReport();
 
     var notes = [];
     var cameraCuts = [];
@@ -1279,11 +1566,11 @@
 
   // ------------------------------------------------------------------ output
 
-  function groupByVariation() {
+  function groupByVariation(charts) {
     var groups = [];
     var byName = {};
 
-    state.charts.forEach(function (chart) {
+    charts.forEach(function (chart) {
       var variation = variationOf(chart.difficulty);
       var group = byName[variation];
 
@@ -1324,9 +1611,8 @@
     return charts[0];
   }
 
-  function buildMetadata(group, otherVariations) {
+  function buildMetadata(song, group, otherVariations) {
     var primary = primaryOf(group.charts);
-    var song = state.song;
 
     var ratings = {};
     group.charts.forEach(function (chart) { ratings[chart.difficulty] = Math.round(chart.rating); });
@@ -1345,12 +1631,7 @@
     metadata.playData = {
       songVariations: group.variation === DEFAULT_VARIATION ? otherVariations : [],
       difficulties: group.charts.map(function (chart) { return chart.difficulty; }),
-      characters: {
-        player: song.player || "bf",
-        girlfriend: song.girlfriend || "gf",
-        opponent: song.opponent || "dad",
-        instrumental: ""
-      },
+      characters: characterData(song),
       stage: song.stage || "mainStage",
       noteStyle: song.noteStyle || "funkin",
       ratings: ratings
@@ -1362,6 +1643,26 @@
     metadata.generatedBy = GENERATED_BY;
 
     return metadata;
+  }
+
+  /**
+   * Which vocal tracks each side sings. The old engines keep one track for both
+   * singers, so when that is all there is the whole thing is given to the
+   * player and the opponent is told to sing nothing — otherwise the game loads
+   * the same track twice and plays it over itself.
+   */
+  function characterData(song) {
+    var characters = {
+      player: song.player || "bf",
+      girlfriend: song.girlfriend || "gf",
+      opponent: song.opponent || "dad",
+      instrumental: ""
+    };
+
+    if (song.opponentVocals) characters.opponentVocals = song.opponentVocals;
+    if (song.playerVocals) characters.playerVocals = song.playerVocals;
+
+    return characters;
   }
 
   function buildChartData(group) {
@@ -1389,6 +1690,35 @@
     };
   }
 
+  /**
+   * The metadata and chart pair for one song, one file per variation. Both the
+   * single chart and the whole mod go through here, so a song converted either
+   * way comes out identical.
+   */
+  function buildSongFiles(song, charts) {
+    var groups = groupByVariation(charts);
+
+    var others = groups
+      .filter(function (group) { return group.variation !== DEFAULT_VARIATION; })
+      .map(function (group) { return group.variation; });
+
+    var files = [];
+
+    groups.forEach(function (group) {
+      files.push({
+        name: metadataFileName(song.songId, group.variation),
+        json: buildMetadata(song, group, others)
+      });
+
+      files.push({
+        name: chartFileName(song.songId, group.variation),
+        json: buildChartData(group)
+      });
+    });
+
+    return files;
+  }
+
   function buildOutputs() {
     state.outputs = [];
 
@@ -1397,23 +1727,7 @@
       return;
     }
 
-    var groups = groupByVariation();
-
-    var others = groups
-      .filter(function (group) { return group.variation !== DEFAULT_VARIATION; })
-      .map(function (group) { return group.variation; });
-
-    groups.forEach(function (group) {
-      state.outputs.push({
-        name: metadataFileName(group.variation),
-        json: buildMetadata(group, others)
-      });
-
-      state.outputs.push({
-        name: chartFileName(group.variation),
-        json: buildChartData(group)
-      });
-    });
+    state.outputs = buildSongFiles(state.song, state.charts);
 
     state.outputs.push({
       name: "manifest.json",
@@ -1476,10 +1790,6 @@
     return true;
   }
 
-  function outputText(output) {
-    return output ? pretty(output.json, "") + "\n" : "";
-  }
-
   // ----------------------------------------------------------------- saving
 
   function utf8(text) {
@@ -1493,7 +1803,7 @@
 
   var crcTable = null;
 
-  function crc32(bytes) {
+  function crc32Update(crc, bytes) {
     if (!crcTable) {
       crcTable = new Uint32Array(256);
 
@@ -1504,9 +1814,59 @@
       }
     }
 
-    var crc = 0xFFFFFFFF;
     for (var i = 0; i < bytes.length; i++) crc = crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
-    return (crc ^ 0xFFFFFFFF) >>> 0;
+    return crc >>> 0;
+  }
+
+  function crc32(bytes) { return (crc32Update(0xFFFFFFFF, bytes) ^ 0xFFFFFFFF) >>> 0; }
+
+  function textEntry(name, text) {
+    var bytes = utf8(text);
+    return { name: name, crc: crc32(bytes), size: bytes.length, body: bytes };
+  }
+
+  /**
+   * A song's audio can be tens of megabytes, and a mod has a lot of songs, so
+   * the file is never held in memory: it is read in slices only to work out its
+   * checksum, and the zip keeps a reference to the file on disk instead.
+   */
+  function fileEntry(name, file, onProgress) {
+    var CHUNK = 4 * 1024 * 1024;
+    var crc = 0xFFFFFFFF;
+    var at = 0;
+
+    function step() {
+      if (at >= file.size) {
+        return Promise.resolve({
+          name: name,
+          crc: (crc ^ 0xFFFFFFFF) >>> 0,
+          size: file.size,
+          body: file
+        });
+      }
+
+      var slice = file.slice(at, Math.min(file.size, at + CHUNK));
+
+      return readArrayBuffer(slice).then(function (buffer) {
+        crc = crc32Update(crc, new Uint8Array(buffer));
+        at += CHUNK;
+        if (onProgress) onProgress(Math.min(at, file.size));
+        return step();
+      });
+    }
+
+    return step();
+  }
+
+  function readArrayBuffer(blob) {
+    if (blob.arrayBuffer) return blob.arrayBuffer();
+
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(reader.result); };
+      reader.onerror = function () { reject(reader.error); };
+      reader.readAsArrayBuffer(blob);
+    });
   }
 
   /**
@@ -1524,8 +1884,9 @@
 
     entries.forEach(function (entry) {
       var name = utf8(entry.name);
-      var body = entry.bytes;
-      var crc = crc32(body);
+      var body = entry.body;
+      var crc = entry.crc;
+      var size = entry.size;
 
       var local = new Uint8Array(30 + name.length);
       var head = new DataView(local.buffer);
@@ -1537,8 +1898,8 @@
       head.setUint16(10, dosTime, true);
       head.setUint16(12, dosDate, true);
       head.setUint32(14, crc, true);
-      head.setUint32(18, body.length, true);
-      head.setUint32(22, body.length, true);
+      head.setUint32(18, size, true);
+      head.setUint32(22, size, true);
       head.setUint16(26, name.length, true);
       head.setUint16(28, 0, true);
       local.set(name, 30);
@@ -1554,15 +1915,15 @@
       entryHead.setUint16(12, dosTime, true);
       entryHead.setUint16(14, dosDate, true);
       entryHead.setUint32(16, crc, true);
-      entryHead.setUint32(20, body.length, true);
-      entryHead.setUint32(24, body.length, true);
+      entryHead.setUint32(20, size, true);
+      entryHead.setUint32(24, size, true);
       entryHead.setUint16(28, name.length, true);
       entryHead.setUint32(42, offset, true);
       central.set(name, 46);
 
       parts.push(local, body);
       directory.push(central);
-      offset += local.length + body.length;
+      offset += local.length + size;
     });
 
     var directorySize = directory.reduce(function (total, item) { return total + item.length; }, 0);
@@ -1727,6 +2088,18 @@
       stats.appendChild(item);
     });
 
+    var warnings = chartWarnings(chart);
+
+    var warn = $("cc-diff-warn");
+    warn.hidden = !warnings.length;
+    warn.innerHTML = warnings.length
+      ? "<ul><li>" + warnings.join("</li><li>") + "</li></ul>"
+      : "";
+  }
+
+  /** Everything worth saying about one converted difficulty, as HTML fragments. */
+  function chartWarnings(chart) {
+    var report = chart.report;
     var warnings = [];
 
     if (!report.notes) {
@@ -1735,9 +2108,14 @@
     }
 
     if (report.eventNotes) {
-      warnings.push(plural(report.eventNotes, "event note") + " left behind — the new format keeps"
+      warnings.push(plural(report.eventNotes, "event") + " left behind — the new format keeps"
         + " events in their own list, and there is no safe way to guess what most of them meant."
         + " The report lists them by name.");
+    }
+
+    if (report.extraStrumlines) {
+      warnings.push(plural(report.extraStrumlines, "extra strumline") + " dropped: the game plays"
+        + " two, one each side, and has nowhere to put a third.");
     }
 
     if (report.duplicates) {
@@ -1760,11 +2138,7 @@
         + " <code>alt</code> needs a note kind script in your mod or the game ignores it.");
     }
 
-    var warn = $("cc-diff-warn");
-    warn.hidden = !warnings.length;
-    warn.innerHTML = warnings.length
-      ? "<ul><li>" + warnings.join("</li><li>") + "</li></ul>"
-      : "";
+    return warnings;
   }
 
   function renderOutput() {
@@ -1798,10 +2172,10 @@
       tabs.appendChild(tab);
     });
 
-    $("cc-out").value = outputText(state.outputs[state.outputIndex]);
+    $("cc-out").value = outputBody(state.outputs[state.outputIndex]);
   }
 
-  function renderReport() {
+  function renderReport(charts, files, songId) {
     var report = $("cc-report");
     report.innerHTML = "";
 
@@ -1833,21 +2207,31 @@
       report.appendChild(line);
     }
 
-    if (!state.charts.length) {
-      heading("Nothing loaded yet.");
+    if (!charts || !charts.length) {
+      heading("Nothing converted yet.");
       return;
     }
 
-    state.charts.forEach(function (chart) {
+    charts.forEach(function (chart) {
       var info = chart.report;
+      var codename = chart.engine === "codename";
 
       heading(chart.source + " · " + chart.difficulty);
 
-      row("<code>sectionNotes</code>, " + plural(info.rawNotes, "note"),
+      row(codename
+        ? plural(info.sections, "strumline") + ", " + plural(info.rawNotes, "note")
+        : "<code>sectionNotes</code>, " + plural(info.rawNotes, "note"),
         plural(info.notes, "note") + " in <code>notes." + escapeHtml(chart.difficulty) + "</code>");
 
-      row(plural(info.flipped, "note") + " in a <code>mustHitSection: false</code> section",
-        "swapped to the other strumline");
+      if (info.flipped) {
+        row(plural(info.flipped, "note") + " in a <code>mustHitSection: false</code> section",
+          "swapped to the other strumline");
+      }
+
+      if (info.extraStrumlines) {
+        row(plural(info.extraNotes, "note") + " on "
+          + plural(info.extraStrumlines, "extra strumline"), "dropped: the game plays two", true);
+      }
 
       if (info.holds) row(plural(info.holds, "sustain"), "kept as <code>l</code> in milliseconds");
 
@@ -1855,13 +2239,14 @@
         + (info.bpmChanges ? " and " + plural(info.bpmChanges, "change") : ""),
         plural(chart.timeChanges.length, "time change"));
 
+      var cameraFrom = codename ? "camera events" : "<code>mustHitSection</code> flips";
+
       if (info.cameraEvents) {
-        row("<code>mustHitSection</code> flips",
-          plural(info.cameraEvents, "<code>FocusCamera</code> event"));
+        row(cameraFrom, plural(info.cameraEvents, "<code>FocusCamera</code> event"));
       } else if (state.opts.camera) {
-        row("<code>mustHitSection</code> flips", "no camera cuts found", true);
+        row(cameraFrom, "no camera cuts found", true);
       } else {
-        row("<code>mustHitSection</code> flips", "camera events turned off", true);
+        row(cameraFrom, "camera events turned off", true);
       }
 
       row("<code>speed: " + chart.scrollSpeed + "</code>",
@@ -1899,10 +2284,10 @@
 
     heading("Files written");
 
-    state.outputs.forEach(function (output) {
-      row("<code>" + escapeHtml(output.name) + "</code>",
-        output.name.indexOf("manifest") === 0 ? "inside the .fnfc only" : "into <code>songs/"
-          + escapeHtml(state.song.songId || "song") + "/</code>");
+    files.forEach(function (name) {
+      row("<code>" + escapeHtml(name) + "</code>",
+        name.indexOf("manifest") === 0 ? "inside the .fnfc only" : "into <code>data/songs/"
+          + escapeHtml(songId || "song") + "/</code>");
     });
   }
 
@@ -2209,6 +2594,1320 @@
     $("cc-zoom-label").textContent = Math.round(state.view.zoom / BASE_ZOOM * 100) + "%";
   }
 
+  // ---------------------------------------------------------------- mod mode
+
+  var MOD_API_VERSION = "0.8.0";
+  var LEVEL_VERSION = "1.0.2";
+  var DEFAULT_TITLE_ASSET = "storymenu/titles/week1";
+  var MAX_SCAN_FILES = 40000;
+
+  var AUDIO_PATTERN = /\.(ogg|mp3|wav)$/i;
+
+  state.mod = {
+    files: [],
+    songs: [],
+    outputs: [],
+    fileIndex: 0,
+    selected: -1,
+    busy: false,
+
+    settings: {
+      id: "",
+      title: "",
+      author: "",
+      version: "1.0.0",
+      description: "",
+      audio: true,
+      polymod: true,
+      level: "freeplay",
+      titleAsset: DEFAULT_TITLE_ASSET
+    },
+
+    touched: {}
+  };
+
+  // ------------------------------------------------------------ reading in
+
+  function entryFor(path, file) {
+    var clean = String(path).replace(/\\/g, "/").replace(/^\.\//, "");
+    var cut = clean.lastIndexOf("/");
+
+    return {
+      path: clean,
+      lower: clean.toLowerCase(),
+      dir: cut < 0 ? "" : clean.slice(0, cut),
+      name: cut < 0 ? clean : clean.slice(cut + 1),
+      file: file
+    };
+  }
+
+  function entriesFromInput(fileList) {
+    var entries = [];
+
+    for (var i = 0; i < fileList.length; i++) {
+      var file = fileList[i];
+      entries.push(entryFor(file.webkitRelativePath || file.name, file));
+    }
+
+    return Promise.resolve(entries);
+  }
+
+  /**
+   * A folder dropped onto the page arrives as directory entries rather than
+   * files, so it has to be walked by hand. Everything is read lazily: only the
+   * names are needed until something is actually converted.
+   */
+  function entriesFromDrop(dataTransfer) {
+    var roots = [];
+    var items = dataTransfer.items;
+
+    for (var i = 0; items && i < items.length; i++) {
+      var entry = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null;
+      if (entry) roots.push(entry);
+    }
+
+    if (!roots.length) return Promise.resolve(null);
+
+    var found = [];
+
+    return Promise.all(roots.map(function (root) { return walkEntry(root, "", found); }))
+      .then(function () { return found; });
+  }
+
+  function walkEntry(entry, prefix, found) {
+    var path = prefix ? prefix + "/" + entry.name : entry.name;
+
+    if (entry.isFile) {
+      return new Promise(function (resolve) {
+        entry.file(function (file) {
+          found.push(entryFor(path, file));
+          resolve();
+        }, function () { resolve(); });
+      });
+    }
+
+    if (!entry.isDirectory || found.length > MAX_SCAN_FILES) return Promise.resolve();
+
+    var reader = entry.createReader();
+    var children = [];
+
+    return new Promise(function (resolve) {
+      function readMore() {
+        reader.readEntries(function (batch) {
+          if (!batch.length) {
+            Promise.all(children.map(function (child) {
+              return walkEntry(child, path, found);
+            })).then(resolve);
+            return;
+          }
+
+          for (var i = 0; i < batch.length; i++) children.push(batch[i]);
+          readMore();
+        }, function () { resolve(); });
+      }
+
+      readMore();
+    });
+  }
+
+  // -------------------------------------------------------------- detection
+
+  /**
+   * Work out which songs a folder holds. Psych and the base game keep the
+   * charts in `data/<song>/` and the audio in `songs/<song>/`; Codename keeps
+   * both under `songs/<song>/`, with the charts in a `charts` folder.
+   */
+  function scanMod(entries) {
+    var songs = [];
+    var byKey = {};
+    var dirs = {};
+
+    entries.forEach(function (entry) {
+      var list = dirs[entry.dir.toLowerCase()];
+      if (!list) list = dirs[entry.dir.toLowerCase()] = [];
+      list.push(entry);
+    });
+
+    function songFor(root, folder, engine) {
+      var key = (root + "|" + folder).toLowerCase();
+      var song = byKey[key];
+
+      if (!song) {
+        song = byKey[key] = {
+          key: key,
+          engine: engine,
+          root: root,
+          folder: folder,
+          id: slug(folder),
+          name: titleCase(folder.replace(/[_-]+/g, " ")),
+          artist: "",
+          charts: [],
+          metaEntry: null,
+          meta: null,
+          audio: { inst: null, altInst: [], voices: [] },
+          selected: true,
+          converted: null,
+          settings: null,
+          warnings: []
+        };
+
+        songs.push(song);
+      }
+
+      return song;
+    }
+
+    /** Everything above the data/ or songs/ folder, ending in a slash. */
+    function rootOf(parts, markerIndex) {
+      return markerIndex <= 0 ? "" : parts.slice(0, markerIndex).join("/") + "/";
+    }
+
+    entries.forEach(function (entry) {
+      if (entry.lower.slice(-5) !== ".json") return;
+
+      // Psych and base game: data/<song>/<song>[-difficulty].json
+      var psych = entry.lower.match(/(?:^|\/)data\/([^\/]+)\/([^\/]+)\.json$/);
+
+      if (psych) {
+        var folder = psych[1];
+        var base = psych[2];
+
+        var difficulty = base === folder ? "normal"
+          : (base.indexOf(folder + "-") === 0 ? base.slice(folder.length + 1) : null);
+
+        if (difficulty === null) return; // events.json, dialogue, anything else
+
+        // The pattern matched against the lowercased path, so the folder is
+        // read back off the real one to keep its capitals.
+        var parts = entry.path.split("/");
+
+        songFor(rootOf(parts, parts.length - 3), parts[parts.length - 2], "psych")
+          .charts.push({ difficulty: difficulty, entry: entry, kind: "legacy" });
+
+        return;
+      }
+
+      // Codename: songs/<song>/charts/<difficulty>.json, or a lone chart.json
+      var codename = entry.lower.match(/(?:^|\/)songs\/([^\/]+)\/charts\/([^\/]+)\.json$/)
+        || entry.lower.match(/(?:^|\/)songs\/([^\/]+)\/()chart\.json$/);
+
+      if (codename) {
+        var songParts = entry.path.split("/");
+
+        // songs/<song>/charts/<difficulty>.json, or songs/<song>/chart.json
+        var nameAt = codename[2] ? songParts.length - 3 : songParts.length - 2;
+
+        songFor(rootOf(songParts, nameAt - 1), songParts[nameAt], "codename").charts.push({
+          difficulty: slug(codename[2]) || "normal",
+          entry: entry,
+          kind: "unknown"
+        });
+      }
+    });
+
+    // Audio, and Codename's meta.json, both live in songs/<song>/.
+    songs.forEach(function (song) {
+      var dir = (song.root + "songs/" + song.folder).toLowerCase();
+      var contents = dirs[dir] || [];
+
+      contents.forEach(function (entry) {
+        if (entry.lower === dir + "/meta.json" || entry.name.toLowerCase() === "meta.json") {
+          song.metaEntry = entry;
+          return;
+        }
+
+        if (!AUDIO_PATTERN.test(entry.name)) return;
+
+        var inst = entry.name.match(/^inst(?:-(.+))?\.(ogg|mp3|wav)$/i);
+
+        if (inst) {
+          if (inst[1]) song.audio.altInst.push({ suffix: inst[1], entry: entry });
+          else song.audio.inst = entry;
+          return;
+        }
+
+        var voices = entry.name.match(/^voices(?:-(.+))?\.(ogg|mp3|wav)$/i);
+        if (voices) song.audio.voices.push({ role: voices[1] || "", entry: entry });
+      });
+
+      song.charts.sort(function (a, b) {
+        var left = KNOWN_DIFFICULTIES.indexOf(a.difficulty);
+        var right = KNOWN_DIFFICULTIES.indexOf(b.difficulty);
+        if (left < 0) left = KNOWN_DIFFICULTIES.length;
+        if (right < 0) right = KNOWN_DIFFICULTIES.length;
+        return left - right;
+      });
+    });
+
+    songs.sort(function (a, b) { return a.folder < b.folder ? -1 : (a.folder > b.folder ? 1 : 0); });
+
+    return songs;
+  }
+
+  /** Codename's meta.json carries the display name, the BPM and the difficulty list. */
+  function readSongMeta(song) {
+    if (!song.metaEntry) return Promise.resolve();
+
+    return readText(song.metaEntry.file).then(function (text) {
+      try {
+        var meta = JSON.parse(text);
+        if (!meta || typeof meta !== "object") return;
+
+        song.meta = meta;
+        if (typeof meta.displayName === "string" && meta.displayName) song.name = meta.displayName;
+        else if (typeof meta.name === "string" && meta.name) song.name = meta.name;
+      } catch (err) { /* a meta file we cannot read is not fatal */ }
+    }, function () { /* ignore */ });
+  }
+
+  function readText(file) {
+    if (file.text) return file.text();
+
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result)); };
+      reader.onerror = function () { reject(reader.error); };
+      reader.readAsText(file);
+    });
+  }
+
+  // ------------------------------------------------------- codename charts
+
+  function isCodenameChart(json) {
+    return !!(json && (json.codenameChart === true || json.strumLines));
+  }
+
+  /**
+   * Codename keeps a chart as one list of notes per strumline, each strumline
+   * saying who plays it, rather than as sections that swap sides. The lanes are
+   * already the right way round; they only need moving onto the one eight lane
+   * strumline the new format uses.
+   */
+  function convertCodenameChart(json, song, difficulty) {
+    var report = blankReport();
+    var meta = song.meta || json.meta || {};
+    var bpm = num(meta.bpm, num(json.bpm, 100));
+
+    var notes = [];
+    var events = [];
+    var timeChanges = [{ t: 0, bpm: round(bpm), n: 4, d: 4, bt: [4, 4, 4, 4] }];
+
+    var strumLines = json.strumLines || [];
+    var noteTypes = json.noteTypes || [];
+
+    strumLines.forEach(function (line) {
+      var kindOfLine = num(line.type, 0);
+      var lineNotes = line.notes || [];
+
+      // 0 is the opponent, 1 is the player, and anything else is an extra
+      // strumline the new format has nowhere to put.
+      if (kindOfLine !== 0 && kindOfLine !== 1) {
+        report.extraNotes += lineNotes.length;
+        report.extraStrumlines++;
+        return;
+      }
+
+      lineNotes.forEach(function (raw) {
+        report.rawNotes++;
+
+        var time = num(raw.time, NaN);
+        var lane = Math.floor(num(raw.id, NaN));
+
+        if (!isFinite(time) || !isFinite(lane) || lane < 0) { report.dropped++; return; }
+
+        if (lane >= STRUMLINE_SIZE) {
+          lane = lane % STRUMLINE_SIZE;
+          report.wrapped++;
+        }
+
+        var data = kindOfLine === 1 ? lane : lane + STRUMLINE_SIZE;
+        var length = Math.max(0, num(raw.sLen, 0));
+        if (length > 0) report.holds++;
+
+        var kind = "";
+        var typeIndex = Math.floor(num(raw.type, 0));
+
+        if (state.opts.kinds && typeIndex > 0) {
+          kind = noteTypes[typeIndex - 1] || noteTypes[typeIndex] || "";
+          if (kind) report.kinds[kind] = (report.kinds[kind] || 0) + 1;
+        }
+
+        notes.push({ t: round(time), d: data, l: round(length), k: kind });
+      });
+    });
+
+    (json.events || []).forEach(function (event) {
+      var name = String(event && event.name || "");
+      var params = (event && (event.params || event.parameters)) || [];
+      var time = num(event && event.time, NaN);
+
+      if (!isFinite(time)) { report.dropped++; return; }
+
+      if (/^bpm/i.test(name) || /bpm change/i.test(name)) {
+        var newBpm = num(params[0], NaN);
+
+        if (state.opts.bpm && isFinite(newBpm) && newBpm > 0) {
+          report.bpmChanges++;
+          if (time <= 0) timeChanges[0].bpm = round(newBpm);
+          else timeChanges.push({ t: round(time), bpm: round(newBpm), n: 4, d: 4, bt: [4, 4, 4, 4] });
+        }
+
+        return;
+      }
+
+      if (/camera/i.test(name)) {
+        // The parameter is the strumline to look at, so it needs the same
+        // swap the note lanes got.
+        var target = num(params[0], 0);
+
+        if (state.opts.camera) {
+          report.cameraEvents++;
+          events.push({ t: round(time), e: "FocusCamera", v: { char: target === 1 ? 0 : 1 } });
+        }
+
+        return;
+      }
+
+      report.psychEvents[name || "(unnamed event)"] = (report.psychEvents[name || "(unnamed event)"] || 0) + 1;
+      report.eventNotes++;
+    });
+
+    notes.sort(function (a, b) { return a.t - b.t || a.d - b.d; });
+    if (state.opts.dedupe) notes = dedupe(notes, report);
+
+    events.sort(function (a, b) { return a.t - b.t; });
+    timeChanges.sort(function (a, b) { return a.t - b.t; });
+
+    report.notes = notes.length;
+    report.sections = strumLines.length;
+
+    var characters = [];
+    strumLines.forEach(function (line) {
+      characters[num(line.type, 0)] = (line.characters || [])[0] || "";
+    });
+
+    return {
+      id: nextId++,
+      engine: "codename",
+      source: song.folder,
+      difficulty: difficulty,
+      scrollSpeed: Math.max(0.1, num(json.scrollSpeed, num(meta.scrollSpeed, 1))),
+      rating: 0,
+      sections: [],
+      notes: notes,
+      events: events,
+      timeChanges: timeChanges,
+      report: report,
+
+      info: {
+        songName: song.name,
+        player: characters[1] || "bf",
+        opponent: characters[0] || "dad",
+        girlfriend: characters[2] || "gf",
+        stage: typeof json.stage === "string" ? json.stage : "",
+        bpm: bpm,
+        offset: num(meta.offset, 0),
+        needsVoices: meta.needsVoices !== false,
+        events: null
+      }
+    };
+  }
+
+  function blankReport() {
+    return {
+      sections: 0,
+      rawNotes: 0,
+      notes: 0,
+      holds: 0,
+      flipped: 0,
+      wrapped: 0,
+      eventNotes: 0,
+      psychEvents: {},
+      kinds: {},
+      dropped: 0,
+      duplicates: 0,
+      bpmChanges: 0,
+      cameraEvents: 0,
+      oddSections: 0,
+      extraStrumlines: 0,
+      extraNotes: 0
+    };
+  }
+
+  // ------------------------------------------------------ converting a mod
+
+  function loadModFolder(entries) {
+    if (!entries || !entries.length) {
+      toast("Nothing in that folder.");
+      return;
+    }
+
+    if (entries.length > MAX_SCAN_FILES) entries = entries.slice(0, MAX_SCAN_FILES);
+
+    state.mod.files = entries;
+    state.mod.songs = scanMod(entries);
+    state.mod.outputs = [];
+    state.mod.selected = -1;
+    state.mod.fileIndex = 0;
+
+    seedModSettings(entries);
+
+    var songs = state.mod.songs;
+
+    if (!songs.length) {
+      renderMod();
+      toast("No songs in there — is this the mod folder itself?");
+      return;
+    }
+
+    // Only Codename keeps a meta.json, and they are small, so reading them all
+    // up front costs nothing and gives the list real song names.
+    Promise.all(songs.map(readSongMeta)).then(function () {
+      renderMod();
+      openPicker();
+    });
+  }
+
+  function seedModSettings(entries) {
+    var settings = state.mod.settings;
+    var root = "";
+
+    // The folder everything came from, which is almost always the mod itself.
+    entries.forEach(function (entry) {
+      var top = entry.path.indexOf("/") < 0 ? "" : entry.path.slice(0, entry.path.indexOf("/"));
+      if (top && !root) root = top;
+    });
+
+    if (!state.mod.touched.id) settings.id = slug(root) || "converted-mod";
+    if (!state.mod.touched.title) settings.title = titleCase((root || "converted mod").replace(/[_-]+/g, " "));
+
+    // A mod folder often carries its own name and author already.
+    entries.forEach(function (entry) {
+      if (entry.name.toLowerCase() !== "_polymod_meta.json" && entry.name.toLowerCase() !== "pack.json") return;
+      if (state.mod.touched.title && state.mod.touched.author) return;
+
+      readText(entry.file).then(function (text) {
+        try {
+          var meta = JSON.parse(text);
+          if (!meta || typeof meta !== "object") return;
+
+          var title = meta.title || meta.name;
+          if (title && !state.mod.touched.title) settings.title = String(title);
+
+          var author = meta.author || (meta.contributors && meta.contributors[0] && meta.contributors[0].name);
+          if (author && !state.mod.touched.author) settings.author = String(author);
+
+          if (meta.description && !state.mod.touched.description) settings.description = String(meta.description);
+
+          renderModFields();
+          renderMod();
+        } catch (err) { /* not ours to worry about */ }
+      }, function () { /* ignore */ });
+    });
+  }
+
+  function selectedSongs() {
+    return state.mod.songs.filter(function (song) { return song.selected; });
+  }
+
+  function convertedSongs() {
+    return state.mod.songs.filter(function (song) { return song.selected && song.converted; });
+  }
+
+  /** Read and convert every chart of every ticked song, one file at a time. */
+  function convertSelected() {
+    var songs = selectedSongs();
+
+    if (!songs.length) {
+      toast("Nothing ticked.");
+      return Promise.resolve();
+    }
+
+    state.mod.busy = true;
+    setTreeLabel("converting…");
+
+    var done = 0;
+
+    return songs.reduce(function (chain, song) {
+      return chain.then(function () {
+        return convertSong(song).then(function () {
+          done++;
+          setTreeLabel("converting… " + done + " of " + songs.length);
+        });
+      });
+    }, Promise.resolve()).then(function () {
+      state.mod.busy = false;
+      state.mod.selected = state.mod.songs.indexOf(convertedSongs()[0]);
+
+      renderMod();
+
+      var failed = songs.filter(function (song) { return !song.converted; }).length;
+
+      toast(failed
+        ? "Converted " + (songs.length - failed) + ", " + failed + " would not read."
+        : "Converted " + plural(songs.length, "song") + ".");
+    });
+  }
+
+  function convertSong(modSong) {
+    var charts = [];
+    modSong.warnings = [];
+
+    return modSong.charts.reduce(function (chain, item) {
+      return chain.then(function () {
+        return readText(item.entry.file).then(function (text) {
+          var json;
+
+          try {
+            json = JSON.parse(text);
+          } catch (err) {
+            modSong.warnings.push(item.entry.name + " is not valid JSON.");
+            return;
+          }
+
+          if (isCodenameChart(json)) {
+            item.kind = "codename";
+            charts.push(convertCodenameChart(json, modSong, item.difficulty));
+            return;
+          }
+
+          var legacy = unwrap(json);
+
+          if (!legacy || !legacy.notes) {
+            modSong.warnings.push(item.entry.name + " has no notes in it.");
+            return;
+          }
+
+          item.kind = "legacy";
+
+          if (Object.prototype.toString.call(legacy.notes) === "[object Array]") {
+            charts.push(makeChart(legacy, legacy.notes, item.difficulty, item.entry.name, legacy.speed));
+            return;
+          }
+
+          ["easy", "normal", "hard"].forEach(function (difficulty) {
+            var sections = legacy.notes[difficulty];
+            if (!sections || !sections.length) return;
+
+            var speed = legacy.speed && typeof legacy.speed === "object"
+              ? legacy.speed[difficulty]
+              : legacy.speed;
+
+            charts.push(makeChart(legacy, sections, difficulty, item.entry.name, speed));
+          });
+        }, function () {
+          modSong.warnings.push(item.entry.name + " could not be read.");
+        });
+      });
+    }, Promise.resolve()).then(function () {
+      // The same difficulty twice means two files disagreeing; the last one in
+      // wins, the same as loading them one after the other by hand.
+      var byDifficulty = {};
+      var unique = [];
+
+      charts.forEach(function (chart) {
+        if (byDifficulty[chart.difficulty] !== undefined) unique[byDifficulty[chart.difficulty]] = chart;
+        else {
+          byDifficulty[chart.difficulty] = unique.length;
+          unique.push(chart);
+        }
+      });
+
+      if (!unique.length) {
+        modSong.converted = null;
+        modSong.warnings.push("nothing in this song converted.");
+        return;
+      }
+
+      modSong.converted = { charts: unique };
+      modSong.settings = deriveSettings(modSong, unique);
+    });
+  }
+
+  function deriveSettings(modSong, charts) {
+    var info = (charts[0] || {}).info || {};
+    var previous = modSong.settings || {};
+
+    return {
+      songId: previous.songId || modSong.id || "song",
+      songName: previous.songName || info.songName || modSong.name,
+      artist: previous.artist || "Unknown",
+      charter: state.mod.settings.author || "",
+      album: "",
+      stage: previous.stage || STAGE_NAMES[info.stage] || info.stage || "mainStage",
+      noteStyle: previous.noteStyle || "funkin",
+      player: previous.player || info.player || "bf",
+      girlfriend: previous.girlfriend || info.girlfriend || "gf",
+      opponent: previous.opponent || info.opponent || "dad",
+      offset: num(info.offset, 0),
+      opponentVocals: null,
+      playerVocals: null
+    };
+  }
+
+  // -------------------------------------------------------- audio placement
+
+  /**
+   * Where each of a song's audio files has to end up. The old engines keep one
+   * vocal track for both singers, while the game now looks for one per
+   * character, so a lone Voices file is given to the player and the opponent is
+   * told it has none — otherwise the same track plays twice, on top of itself.
+   */
+  function audioPlan(modSong) {
+    var settings = modSong.settings;
+    var files = [];
+    var notes = [];
+
+    var opponentVocals = null;
+    var playerVocals = null;
+
+    if (modSong.audio.inst) {
+      files.push({ from: modSong.audio.inst, to: "Inst" + extensionOf(modSong.audio.inst) });
+    } else {
+      notes.push("no instrumental found in " + modSong.root + "songs/" + modSong.folder + "/");
+    }
+
+    modSong.audio.altInst.forEach(function (alt) {
+      files.push({ from: alt.entry, to: "Inst-" + alt.suffix + extensionOf(alt.entry) });
+    });
+
+    var voices = modSong.audio.voices;
+    var combined = null;
+    var byRole = {};
+
+    voices.forEach(function (voice) {
+      var role = voice.role.toLowerCase();
+      if (!role) combined = voice;
+      else byRole[role] = voice;
+    });
+
+    if (byRole.player || byRole.opponent) {
+      if (byRole.player) {
+        files.push({ from: byRole.player.entry, to: "Voices-" + settings.player + extensionOf(byRole.player.entry) });
+        playerVocals = [settings.player];
+      } else {
+        playerVocals = [];
+      }
+
+      if (byRole.opponent) {
+        files.push({ from: byRole.opponent.entry, to: "Voices-" + settings.opponent + extensionOf(byRole.opponent.entry) });
+        opponentVocals = [settings.opponent];
+      } else {
+        opponentVocals = [];
+      }
+    } else if (combined) {
+      files.push({ from: combined.entry, to: "Voices-" + settings.player + extensionOf(combined.entry) });
+      playerVocals = [settings.player];
+      opponentVocals = [];
+      notes.push("one shared vocal track, given to " + settings.player
+        + "; the opponent is set to sing nothing so it does not play twice");
+    } else if (voices.length) {
+      voices.forEach(function (voice) {
+        files.push({ from: voice.entry, to: "Voices-" + voice.role + extensionOf(voice.entry) });
+      });
+    } else {
+      playerVocals = [];
+      opponentVocals = [];
+      notes.push("no vocals found; the song will play with the instrumental alone");
+    }
+
+    files.forEach(function (item) {
+      if (!/\.ogg$/i.test(item.to)) {
+        notes.push(item.to + " is not an .ogg — the game will not find it on desktop builds");
+      }
+    });
+
+    return { files: files, notes: notes, opponentVocals: opponentVocals, playerVocals: playerVocals };
+  }
+
+  function extensionOf(entry) {
+    var match = entry.name.match(/\.[a-z0-9]+$/i);
+    return match ? match[0].toLowerCase() : ".ogg";
+  }
+
+  // --------------------------------------------------------- the mod itself
+
+  function modId() { return slug(state.mod.settings.id) || "converted-mod"; }
+
+  function buildModOutputs() {
+    var settings = state.mod.settings;
+    var songs = convertedSongs();
+    var root = modId();
+    var outputs = [];
+
+    state.mod.outputs = outputs;
+
+    if (!songs.length) return;
+
+    if (settings.polymod) {
+      outputs.push({
+        path: root + "/_polymod_meta.json",
+        json: {
+          title: settings.title || titleCase(root.replace(/[_-]+/g, " ")),
+          description: settings.description || "Charts converted to the V-Slice format.",
+          contributors: settings.author ? [{ name: settings.author }] : [],
+          api_version: MOD_API_VERSION,
+          mod_version: settings.version || "1.0.0"
+        }
+      });
+    }
+
+    songs.forEach(function (song) {
+      song.settings.charter = settings.author || "";
+
+      var plan = audioPlan(song);
+      song.plan = plan;
+
+      song.settings.opponentVocals = plan.opponentVocals;
+      song.settings.playerVocals = plan.playerVocals;
+
+      var id = song.settings.songId;
+
+      buildSongFiles(song.settings, song.converted.charts).forEach(function (file) {
+        outputs.push({ path: root + "/data/songs/" + id + "/" + file.name, json: file.json, song: song });
+      });
+
+      if (settings.audio) {
+        plan.files.forEach(function (item) {
+          outputs.push({
+            path: root + "/songs/" + id + "/" + item.to,
+            file: item.from.file,
+            source: item.from.path,
+            song: song
+          });
+        });
+      }
+    });
+
+    if (settings.level !== "none") {
+      outputs.push({
+        path: root + "/data/levels/" + root + ".json",
+        json: {
+          version: LEVEL_VERSION,
+          name: settings.title || titleCase(root.replace(/[_-]+/g, " ")),
+          titleAsset: settings.titleAsset || DEFAULT_TITLE_ASSET,
+          props: [],
+          visible: settings.level === "story",
+          songs: songs.map(function (song) { return song.settings.songId; }),
+          background: "#F9CF51"
+        }
+      });
+    }
+
+    if (!settings.audio) outputs.push({ path: root + "/COPY-THE-AUDIO.txt", text: copyList(songs) });
+  }
+
+  function copyList(songs) {
+    var root = modId();
+    var lines = [
+      "The charts are converted; the audio is not in this zip.",
+      "Copy each file on the left to the path on the right, inside the mod folder.",
+      ""
+    ];
+
+    songs.forEach(function (song) {
+      var plan = song.plan || audioPlan(song);
+
+      lines.push(song.settings.songName + " (" + song.settings.songId + ")");
+
+      plan.files.forEach(function (item) {
+        lines.push("  " + item.from.path + "  ->  " + root + "/songs/" + song.settings.songId + "/" + item.to);
+      });
+
+      plan.notes.forEach(function (note) { lines.push("  note: " + note); });
+      lines.push("");
+    });
+
+    return lines.join("\n");
+  }
+
+  function outputSize(output) {
+    if (output.file) return output.file.size;
+    if (output.text !== undefined) return utf8(output.text).length;
+    if (output.bytes === undefined) output.bytes = utf8(pretty(output.json, "") + "\n").length;
+    return output.bytes;
+  }
+
+  function outputBody(output) {
+    if (output.text !== undefined) return output.text;
+    return pretty(output.json, "") + "\n";
+  }
+
+  function fileSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + " MB";
+    return (bytes / 1024 / 1024 / 1024).toFixed(2) + " GB";
+  }
+
+  function modTotalSize() {
+    return state.mod.outputs.reduce(function (total, output) { return total + outputSize(output); }, 0);
+  }
+
+  // ---------------------------------------------------------- mod rendering
+
+  function setTreeLabel(text) { $("cc-tree-label").textContent = text; }
+
+  function modTextOutputs() {
+    return state.mod.outputs.filter(function (output) { return !output.file; });
+  }
+
+  function currentOutput() {
+    if (state.mode === "mod") return modTextOutputs()[state.mod.fileIndex] || null;
+    return state.outputs[state.outputIndex] || null;
+  }
+
+  function currentOutputName() {
+    var output = currentOutput();
+    return output ? (output.path || output.name) : "";
+  }
+
+  function currentOutputText() {
+    var output = currentOutput();
+    return output ? outputBody(output) : "";
+  }
+
+  function selectedSong() { return state.mod.songs[state.mod.selected] || null; }
+
+  function renderModChips() {
+    var songs = state.mod.songs;
+
+    if (!songs.length) {
+      setChip("cc-chip-charts", "no mod loaded");
+      setChip("cc-chip-notes", "nothing scanned");
+      setChip("cc-chip-out", "nothing to save");
+      return;
+    }
+
+    var converted = convertedSongs();
+    var engines = {};
+    songs.forEach(function (song) { engines[song.engine] = true; });
+
+    setChip("cc-chip-charts", plural(songs.length, "song") + " · " + Object.keys(engines).join(" + "), "ok");
+
+    setChip("cc-chip-notes", converted.length
+      ? plural(converted.length, "song") + " converted"
+      : plural(selectedSongs().length, "song") + " ticked", converted.length ? "ok" : "warn");
+
+    setChip("cc-chip-out", state.mod.outputs.length
+      ? plural(state.mod.outputs.length, "file") + " · " + fileSize(modTotalSize())
+      : "nothing to save", state.mod.outputs.length ? "ok" : null);
+  }
+
+  function renderModStats() {
+    var stats = $("cc-mod-stats");
+    stats.innerHTML = "";
+
+    if (!state.mod.files.length) return;
+
+    var pairs = [
+      ["files read", state.mod.files.length],
+      ["songs", state.mod.songs.length],
+      ["ticked", selectedSongs().length],
+      ["converted", convertedSongs().length]
+    ];
+
+    pairs.forEach(function (pair) {
+      var item = document.createElement("span");
+      item.textContent = pair[0] + " ";
+
+      var value = document.createElement("b");
+      value.textContent = String(pair[1]);
+      item.appendChild(value);
+      stats.appendChild(item);
+    });
+
+    $("cc-mod-tools").hidden = !state.mod.songs.length;
+    $("cc-pick-open-2").disabled = !state.mod.songs.length;
+
+    var trouble = [];
+
+    state.mod.songs.forEach(function (song) {
+      if (!song.selected) return;
+
+      song.warnings.forEach(function (warning) {
+        trouble.push(escapeHtml(song.name) + ": " + escapeHtml(warning));
+      });
+
+      if (song.converted && !song.audio.inst && state.mod.settings.audio) {
+        trouble.push(escapeHtml(song.name) + ": no instrumental in <code>songs/"
+          + escapeHtml(song.folder) + "/</code>, so the song cannot play until you add one.");
+      }
+    });
+
+    var warn = $("cc-mod-warn");
+    warn.hidden = !trouble.length;
+    warn.innerHTML = trouble.length ? "<ul><li>" + trouble.slice(0, 8).join("</li><li>") + "</li></ul>" : "";
+  }
+
+  function renderTree() {
+    var tree = $("cc-tree");
+    tree.innerHTML = "";
+
+    if (!state.mod.outputs.length) {
+      var empty = document.createElement("p");
+      empty.className = "tree-empty";
+
+      empty.textContent = state.mod.songs.length
+        ? "Tick some songs and convert them to see the mod that comes out."
+        : "Drop a Psych or Codename mod folder to start.";
+
+      tree.appendChild(empty);
+      setTreeLabel(state.mod.songs.length ? "nothing converted yet" : "no mod loaded");
+      return;
+    }
+
+    var lastDir = null;
+
+    state.mod.outputs.forEach(function (output) {
+      var cut = output.path.lastIndexOf("/");
+      var dir = cut < 0 ? "" : output.path.slice(0, cut);
+      var name = cut < 0 ? output.path : output.path.slice(cut + 1);
+
+      if (dir !== lastDir) {
+        lastDir = dir;
+
+        var head = document.createElement("div");
+        head.className = "tree-row tree-dir";
+        head.textContent = dir + "/";
+        tree.appendChild(head);
+      }
+
+      var row = document.createElement("div");
+      row.className = "tree-row" + (output.song ? " clickable" : "");
+      row.setAttribute("role", "listitem");
+
+      if (output.song && output.song === selectedSong()) row.setAttribute("aria-selected", "true");
+
+      var label = document.createElement("span");
+      label.className = "tree-name";
+      label.innerHTML = "&nbsp;&nbsp;" + (output.file ? "<i>" + escapeHtml(name) + "</i>" : "<b>" + escapeHtml(name) + "</b>");
+
+      var size = document.createElement("span");
+      size.className = "tree-size";
+      size.textContent = fileSize(outputSize(output));
+
+      row.appendChild(label);
+      row.appendChild(size);
+
+      if (output.song) {
+        row.addEventListener("click", function () {
+          state.mod.selected = state.mod.songs.indexOf(output.song);
+          renderTree();
+          renderModInspector();
+        });
+      }
+
+      tree.appendChild(row);
+    });
+
+    setTreeLabel(plural(state.mod.outputs.length, "file") + " · " + fileSize(modTotalSize())
+      + (state.mod.settings.audio ? "" : " · charts only"));
+  }
+
+  function renderModFields() {
+    var settings = state.mod.settings;
+
+    $("cc-mod-id").value = settings.id;
+    $("cc-mod-title").value = settings.title;
+    $("cc-mod-author").value = settings.author;
+    $("cc-mod-version").value = settings.version;
+    $("cc-mod-desc").value = settings.description;
+    $("cc-mod-audio").checked = settings.audio;
+    $("cc-mod-polymod").checked = settings.polymod;
+    $("cc-mod-level").value = settings.level;
+    $("cc-mod-title-asset").value = settings.titleAsset;
+
+    var story = settings.level === "story";
+    $("cc-mod-title-asset-row").hidden = !story;
+    $("cc-mod-title-note").hidden = !story;
+  }
+
+  function renderModInspector() {
+    var song = selectedSong();
+    var ready = !!(song && song.converted);
+
+    $("cc-song-empty").hidden = ready;
+    $("cc-song-fields").hidden = !ready;
+    $("cc-song-engine").textContent = ready ? song.engine : "";
+
+    if (!ready) return;
+
+    var settings = song.settings;
+
+    $("cc-song-id2").value = settings.songId;
+    $("cc-song-name2").value = settings.songName;
+    $("cc-song-artist2").value = settings.artist;
+    $("cc-song-stage2").value = settings.stage;
+    $("cc-song-style2").value = settings.noteStyle;
+    $("cc-song-player2").value = settings.player;
+    $("cc-song-gf2").value = settings.girlfriend;
+    $("cc-song-opponent2").value = settings.opponent;
+
+    var stats = $("cc-song-stats");
+    stats.innerHTML = "";
+
+    var notes = 0;
+    var difficulties = [];
+
+    song.converted.charts.forEach(function (chart) {
+      notes += chart.notes.length;
+      difficulties.push(chart.difficulty);
+    });
+
+    [["difficulties", difficulties.join(", ")], ["notes", notes],
+      ["from", song.root + "songs/" + song.folder]].forEach(function (pair) {
+      var item = document.createElement("span");
+      item.textContent = pair[0] + " ";
+
+      var value = document.createElement("b");
+      value.textContent = String(pair[1]);
+      item.appendChild(value);
+      stats.appendChild(item);
+    });
+
+    var warnings = [];
+
+    song.converted.charts.forEach(function (chart) {
+      chartWarnings(chart).forEach(function (warning) {
+        warnings.push(chart.difficulty + ": " + warning);
+      });
+    });
+
+    (song.plan ? song.plan.notes : []).forEach(function (note) { warnings.push(escapeHtml(note)); });
+    song.warnings.forEach(function (warning) { warnings.push(escapeHtml(warning)); });
+
+    var warn = $("cc-song-warn");
+    warn.hidden = !warnings.length;
+    warn.innerHTML = warnings.length ? "<ul><li>" + warnings.join("</li><li>") + "</li></ul>" : "";
+  }
+
+  function renderModFiles() {
+    var select = $("cc-file-select");
+    var files = modTextOutputs();
+
+    select.innerHTML = "";
+
+    if (state.mod.fileIndex >= files.length) state.mod.fileIndex = 0;
+
+    files.forEach(function (output, index) {
+      var option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = output.path;
+      if (index === state.mod.fileIndex) option.selected = true;
+      select.appendChild(option);
+    });
+
+    var has = files.length > 0;
+
+    $("cc-copy").disabled = !has;
+    $("cc-save-one").disabled = !has;
+    $("cc-save-mod").disabled = !state.mod.outputs.length || state.mod.busy;
+    $("cc-out").value = has ? outputBody(files[state.mod.fileIndex]) : "";
+  }
+
+  function renderMod() {
+    buildModOutputs();
+
+    $("cc-clear").disabled = !state.mod.songs.length;
+    $("cc-report-open").disabled = !convertedSongs().length;
+
+    renderModChips();
+    renderModStats();
+    renderTree();
+    renderModInspector();
+    renderModFiles();
+  }
+
+  // ------------------------------------------------------------ the picker
+
+  function openPicker() {
+    renderPicker();
+    $("cc-pick-overlay").hidden = false;
+  }
+
+  function renderPicker() {
+    var list = $("cc-pick-list");
+    var filter = $("cc-pick-search").value.trim().toLowerCase();
+
+    list.innerHTML = "";
+
+    var shown = state.mod.songs.filter(function (song) {
+      if (!filter) return true;
+      return (song.name + " " + song.folder).toLowerCase().indexOf(filter) >= 0;
+    });
+
+    if (!shown.length) {
+      var empty = document.createElement("p");
+      empty.className = "sheet-empty";
+      empty.textContent = state.mod.songs.length ? "Nothing matches that." : "No songs found in this folder.";
+      list.appendChild(empty);
+    }
+
+    shown.forEach(function (song) {
+      var row = document.createElement("label");
+      row.className = "pick";
+
+      var tick = document.createElement("input");
+      tick.type = "checkbox";
+      tick.checked = song.selected;
+
+      tick.addEventListener("change", function () {
+        song.selected = tick.checked;
+        updatePickCount();
+        renderModStats();
+      });
+
+      var text = document.createElement("span");
+      text.className = "pick-text";
+
+      var title = document.createElement("span");
+      title.className = "pick-title";
+      title.textContent = song.name;
+
+      var note = document.createElement("span");
+      note.className = "pick-note";
+
+      var difficulties = song.charts.map(function (chart) { return chart.difficulty; });
+      var audio = [];
+
+      if (song.audio.inst) audio.push("Inst");
+      if (song.audio.voices.length) audio.push(plural(song.audio.voices.length, "vocal"));
+
+      note.innerHTML = escapeHtml(song.root + (song.engine === "psych" ? "data/" : "songs/") + song.folder)
+        + " · " + escapeHtml(song.engine)
+        + " · <b>" + escapeHtml(difficulties.join(", ")) + "</b> · "
+        + (audio.length ? escapeHtml(audio.join(" + ")) : "<span class=\"miss\">no audio</span>");
+
+      text.appendChild(title);
+      text.appendChild(note);
+
+      var count = document.createElement("span");
+      count.className = "pick-count";
+      count.textContent = plural(song.charts.length, "chart");
+
+      row.appendChild(tick);
+      row.appendChild(text);
+      row.appendChild(count);
+      list.appendChild(row);
+    });
+
+    updatePickCount();
+  }
+
+  function updatePickCount() {
+    $("cc-pick-count").textContent = String(selectedSongs().length);
+    $("cc-pick-total").textContent = String(state.mod.songs.length);
+
+    var withoutAudio = selectedSongs().filter(function (song) { return !song.audio.inst; }).length;
+
+    $("cc-pick-note").textContent = withoutAudio
+      ? plural(withoutAudio, "ticked song") + " has no instrumental next to it."
+      : "";
+  }
+
+  // -------------------------------------------------------------- saving up
+
+  var ZIP_LIMIT = 3.8 * 1024 * 1024 * 1024;
+
+  function saveModZip() {
+    if (!state.mod.outputs.length || state.mod.busy) return;
+
+    var total = modTotalSize();
+
+    if (total > ZIP_LIMIT) {
+      toast("Too big for one zip — untick the audio, or convert fewer songs.");
+      return;
+    }
+
+    state.mod.busy = true;
+    $("cc-save-mod").disabled = true;
+
+    var entries = [];
+    var packed = 0;
+
+    var chain = state.mod.outputs.reduce(function (previous, output) {
+      return previous.then(function () {
+        if (!output.file) {
+          var entry = textEntry(output.path, outputBody(output));
+          entries.push(entry);
+          packed += entry.size;
+          return null;
+        }
+
+        var start = packed;
+
+        return fileEntry(output.path, output.file, function (read) {
+          setTreeLabel("packing… " + Math.round((start + read) / Math.max(1, total) * 100) + "%");
+        }).then(function (entry) {
+          entries.push(entry);
+          packed += entry.size;
+        });
+      });
+    }, Promise.resolve());
+
+    chain.then(function () {
+      download(zip(entries), modId() + ".zip");
+
+      state.mod.busy = false;
+      $("cc-save-mod").disabled = false;
+      renderTree();
+      toast("Saved " + modId() + ".zip");
+    }, function (err) {
+      state.mod.busy = false;
+      $("cc-save-mod").disabled = false;
+      renderTree();
+      toast("Could not read one of the files: " + (err && err.message ? err.message : "unknown error"));
+    });
+  }
+
+  function clearMod() {
+    state.mod.files = [];
+    state.mod.songs = [];
+    state.mod.outputs = [];
+    state.mod.selected = -1;
+    state.mod.fileIndex = 0;
+
+    renderMod();
+    toast("Cleared.");
+  }
+
+  // ------------------------------------------------------------------ modes
+
+  function setMode(mode) {
+    state.mode = mode;
+
+    $("cc-chart-workspace").hidden = mode !== "chart";
+    $("cc-mod-workspace").hidden = mode !== "mod";
+
+    $("cc-mode-chart").classList.toggle("on", mode === "chart");
+    $("cc-mode-mod").classList.toggle("on", mode === "mod");
+    $("cc-mode-chart").setAttribute("aria-pressed", mode === "chart" ? "true" : "false");
+    $("cc-mode-mod").setAttribute("aria-pressed", mode === "mod" ? "true" : "false");
+
+    $("cc-file-tabs").hidden = mode !== "chart";
+    $("cc-file-select").hidden = mode !== "mod";
+    $("cc-save-fnfc").hidden = mode !== "chart";
+    $("cc-save-mod").hidden = mode !== "mod";
+    $("cc-out-hint").hidden = mode !== "chart";
+    $("cc-mod-out-hint").hidden = mode !== "mod";
+
+    if (mode === "chart") {
+      $("cc-clear").disabled = !state.charts.length;
+      $("cc-report-open").disabled = !state.charts.length;
+
+      render();
+      resizeCanvas();
+      draw();
+    } else {
+      $("cc-clear").disabled = !state.mod.songs.length;
+      $("cc-report-open").disabled = !convertedSongs().length;
+
+      renderModFields();
+      renderMod();
+    }
+  }
+
   // -------------------------------------------------------------- loading in
 
   function seed(key, value) {
@@ -2357,8 +4056,68 @@
   }
 
   function bindDrop() {
-    var drop = $("cc-drop");
-    var input = $("cc-file-input");
+    openWith("cc-drop", "cc-file-input");
+    openWith("cc-mod-drop", "cc-mod-input");
+
+    $("cc-file-input").addEventListener("change", function () {
+      loadFiles(this.files);
+      this.value = "";
+    });
+
+    $("cc-mod-input").addEventListener("change", function () {
+      // Clearing the input empties its file list, and the folder is read
+      // asynchronously, so the files are taken out of it first.
+      var picked = [];
+      for (var i = 0; i < this.files.length; i++) picked.push(this.files[i]);
+
+      this.value = "";
+      entriesFromInput(picked).then(loadModFolder);
+    });
+
+    ["dragenter", "dragover"].forEach(function (name) {
+      document.addEventListener(name, function (event) {
+        event.preventDefault();
+        activeDrop().classList.add("hot");
+      });
+    });
+
+    ["dragleave", "drop"].forEach(function (name) {
+      document.addEventListener(name, function (event) {
+        event.preventDefault();
+        if (name === "dragleave" && event.relatedTarget) return;
+        activeDrop().classList.remove("hot");
+      });
+    });
+
+    document.addEventListener("drop", function (event) {
+      var transfer = event.dataTransfer;
+      if (!transfer) return;
+
+      if (state.mode === "chart") {
+        if (transfer.files && transfer.files.length) loadFiles(transfer.files);
+        return;
+      }
+
+      // A dropped folder only comes through as directory entries; the plain
+      // file list is empty for it.
+      entriesFromDrop(transfer).then(function (entries) {
+        if (entries && entries.length) {
+          loadModFolder(entries);
+          return;
+        }
+
+        if (transfer.files && transfer.files.length) {
+          entriesFromInput(transfer.files).then(loadModFolder);
+        }
+      });
+    });
+  }
+
+  function activeDrop() { return $(state.mode === "chart" ? "cc-drop" : "cc-mod-drop"); }
+
+  function openWith(dropId, inputId) {
+    var drop = $(dropId);
+    var input = $(inputId);
 
     drop.addEventListener("click", function () { input.click(); });
 
@@ -2367,30 +4126,6 @@
         event.preventDefault();
         input.click();
       }
-    });
-
-    input.addEventListener("change", function () {
-      loadFiles(input.files);
-      input.value = "";
-    });
-
-    ["dragenter", "dragover"].forEach(function (name) {
-      document.addEventListener(name, function (event) {
-        event.preventDefault();
-        drop.classList.add("hot");
-      });
-    });
-
-    ["dragleave", "drop"].forEach(function (name) {
-      document.addEventListener(name, function (event) {
-        event.preventDefault();
-        if (name === "dragleave" && event.relatedTarget) return;
-        drop.classList.remove("hot");
-      });
-    });
-
-    document.addEventListener("drop", function (event) {
-      if (event.dataTransfer && event.dataTransfer.files) loadFiles(event.dataTransfer.files);
     });
   }
 
@@ -2515,7 +4250,7 @@
 
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(function () {
-          toast("Copied " + state.outputs[state.outputIndex].name + ".");
+          toast("Copied " + currentOutputName() + ".");
         }, fallbackCopy);
       } else {
         fallbackCopy();
@@ -2538,18 +4273,27 @@
     });
 
     $("cc-save-one").addEventListener("click", function () {
-      var output = state.outputs[state.outputIndex];
+      var output = currentOutput();
       if (!output) return;
 
-      download(new Blob([outputText(output)], { type: "application/json" }), output.name);
-      toast("Saved " + output.name + ".");
+      // In mod mode the name carries the folders it belongs in, which a
+      // download cannot keep, so only the file name itself is used.
+      var name = currentOutputName();
+      var cut = name.lastIndexOf("/");
+
+      download(new Blob([outputBody(output)], { type: "application/json" }),
+        cut < 0 ? name : name.slice(cut + 1));
+
+      toast("Saved " + (cut < 0 ? name : name.slice(cut + 1)) + ".");
     });
+
+    $("cc-save-mod").addEventListener("click", saveModZip);
 
     $("cc-save-fnfc").addEventListener("click", function () {
       if (!state.outputs.length) return;
 
       var entries = state.outputs.map(function (output) {
-        return { name: output.name, bytes: utf8(outputText(output)) };
+        return textEntry(output.name, outputBody(output));
       });
 
       var name = (state.song.songId || "song") + ".fnfc";
@@ -2563,7 +4307,20 @@
     var overlay = $("cc-report-overlay");
 
     $("cc-report-open").addEventListener("click", function () {
-      renderReport();
+      if (state.mode === "chart") {
+        renderReport(state.charts, state.outputs.map(function (output) { return output.name; }),
+          state.song.songId);
+      } else {
+        var song = selectedSong() || convertedSongs()[0];
+        if (!song || !song.converted) return;
+
+        state.mod.selected = state.mod.songs.indexOf(song);
+
+        renderReport(song.converted.charts,
+          buildSongFiles(song.settings, song.converted.charts).map(function (file) { return file.name; }),
+          song.settings.songId);
+      }
+
       overlay.hidden = false;
     });
 
@@ -2574,7 +4331,112 @@
     });
 
     document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") overlay.hidden = true;
+      if (event.key !== "Escape") return;
+
+      overlay.hidden = true;
+      $("cc-pick-overlay").hidden = true;
+    });
+  }
+
+  function bindMode() {
+    $("cc-mode-chart").addEventListener("click", function () { setMode("chart"); });
+    $("cc-mode-mod").addEventListener("click", function () { setMode("mod"); });
+  }
+
+  function bindModFields() {
+    function text(id, key, transform) {
+      var input = $(id);
+
+      input.addEventListener("input", function () {
+        state.mod.touched[key] = true;
+        state.mod.settings[key] = transform ? transform(input.value) : input.value;
+        renderMod();
+      });
+
+      input.addEventListener("blur", function () {
+        if (transform) input.value = state.mod.settings[key];
+      });
+    }
+
+    text("cc-mod-id", "id", slug);
+    text("cc-mod-title", "title");
+    text("cc-mod-author", "author");
+    text("cc-mod-version", "version");
+    text("cc-mod-desc", "description");
+    text("cc-mod-title-asset", "titleAsset");
+
+    $("cc-mod-audio").addEventListener("change", function () {
+      state.mod.settings.audio = this.checked;
+      renderMod();
+    });
+
+    $("cc-mod-polymod").addEventListener("change", function () {
+      state.mod.settings.polymod = this.checked;
+      renderMod();
+    });
+
+    $("cc-mod-level").addEventListener("change", function () {
+      state.mod.settings.level = this.value;
+      renderModFields();
+      renderMod();
+    });
+
+    $("cc-file-select").addEventListener("change", function () {
+      state.mod.fileIndex = parseInt(this.value, 10) || 0;
+      renderModFiles();
+    });
+
+    $("cc-mod-clear").addEventListener("click", clearMod);
+
+    // The song panel edits one converted song and rebuilds only what it touches.
+    function songField(id, key, transform) {
+      $(id).addEventListener("input", function () {
+        var song = selectedSong();
+        if (!song || !song.converted) return;
+
+        song.settings[key] = transform ? transform(this.value) : this.value;
+        renderMod();
+      });
+    }
+
+    songField("cc-song-id2", "songId", slug);
+    songField("cc-song-name2", "songName");
+    songField("cc-song-artist2", "artist");
+    songField("cc-song-stage2", "stage");
+    songField("cc-song-style2", "noteStyle");
+    songField("cc-song-player2", "player");
+    songField("cc-song-gf2", "girlfriend");
+    songField("cc-song-opponent2", "opponent");
+  }
+
+  function bindPicker() {
+    var overlay = $("cc-pick-overlay");
+
+    $("cc-pick-open").addEventListener("click", openPicker);
+    $("cc-pick-open-2").addEventListener("click", openPicker);
+    $("cc-pick-close").addEventListener("click", function () { overlay.hidden = true; });
+
+    overlay.addEventListener("click", function (event) {
+      if (event.target === overlay) overlay.hidden = true;
+    });
+
+    $("cc-pick-search").addEventListener("input", renderPicker);
+
+    $("cc-pick-all").addEventListener("click", function () {
+      state.mod.songs.forEach(function (song) { song.selected = true; });
+      renderPicker();
+      renderModStats();
+    });
+
+    $("cc-pick-none").addEventListener("click", function () {
+      state.mod.songs.forEach(function (song) { song.selected = false; });
+      renderPicker();
+      renderModStats();
+    });
+
+    $("cc-pick-convert").addEventListener("click", function () {
+      overlay.hidden = true;
+      convertSelected();
     });
   }
 
@@ -2623,13 +4485,21 @@
     bindDifficultyFields();
     bindSaving();
     bindReport();
+    bindMode();
+    bindModFields();
+    bindPicker();
 
-    $("cc-clear").addEventListener("click", clearAll);
+    $("cc-clear").addEventListener("click", function () {
+      if (state.mode === "chart") clearAll();
+      else clearMod();
+    });
 
     renderSongFields();
+    renderModFields();
     resizeCanvas();
     updateZoomLabel();
     render();
+    setMode("chart");
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
