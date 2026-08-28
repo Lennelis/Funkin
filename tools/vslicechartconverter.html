@@ -1177,6 +1177,17 @@
   ];
 
   var LANE_NAMES = ["left", "down", "up", "right"];
+
+  // Characters the game already has, so a song asking for one of them is not
+  // missing anything.
+  var BASE_GAME_CHARACTERS = [
+    "bf", "bf-car", "bf-christmas", "bf-pixel", "bf-holding-gf", "bf-dark",
+    "gf", "gf-car", "gf-christmas", "gf-pixel", "gf-tankmen",
+    "dad", "mom", "mom-car", "monster", "monster-christmas", "pico", "pico-blazin",
+    "pico-playable", "pico-speaker", "parents-christmas", "senpai", "senpai-angry",
+    "spirit", "spooky", "spooky-dark", "tankman", "tankman-atlas", "darnell",
+    "nene", "nene-pixel", "darnell-blazin", "spooky-kids"
+  ];
   var LANE_COLOURS = ["#C24B99", "#00FFFF", "#12FA05", "#F9393F"];
 
   var BASE_ZOOM = 0.05; // pixels per millisecond at 100%
@@ -2773,7 +2784,9 @@
 
   state.mod = {
     files: [],
+    byPath: {},
     songs: [],
+    characters: [],
     outputs: [],
     fileIndex: 0,
     selected: -1,
@@ -2889,12 +2902,18 @@
     var songs = [];
     var byKey = {};
     var dirs = {};
+    var byPath = {};
 
     entries.forEach(function (entry) {
       var list = dirs[entry.dir.toLowerCase()];
       if (!list) list = dirs[entry.dir.toLowerCase()] = [];
       list.push(entry);
+
+      byPath[entry.lower] = entry;
     });
+
+    state.mod.byPath = byPath;
+    state.mod.characters = scanCharacters(entries);
 
     function songFor(root, folder, engine) {
       var key = (root + "|" + folder).toLowerCase();
@@ -3010,6 +3029,42 @@
     songs.sort(function (a, b) { return a.folder < b.folder ? -1 : (a.folder > b.folder ? 1 : 0); });
 
     return songs;
+  }
+
+  /**
+   * Character files sit in a `characters` folder whatever engine wrote them.
+   * Psych writes one JSON each, Codename writes XML, and the game's own format
+   * is JSON too, so which is which is settled when the file is read.
+   */
+  function scanCharacters(entries) {
+    var found = [];
+
+    entries.forEach(function (entry) {
+      var match = entry.lower.match(/(?:^|\/)characters\/([^\/]+)\.(json|xml)$/);
+      if (!match) return;
+
+      // `images/characters/` holds spritesheets and the XML that cuts them up,
+      // not characters.
+      if (/(?:^|\/)images\/characters\//.test(entry.lower)) return;
+
+      var parts = entry.path.split("/");
+      var name = parts[parts.length - 1].replace(/\.[^.]*$/, "");
+      var root = parts.length < 2 ? "" : parts.slice(0, parts.length - 2).join("/") + "/";
+
+      found.push({
+        id: name,
+        root: root === "/" ? "" : root,
+        entry: entry,
+        format: match[2],
+        data: null,
+        assets: [],
+        warnings: []
+      });
+    });
+
+    found.sort(function (a, b) { return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0); });
+
+    return found;
   }
 
   /** Codename's meta.json carries the display name, the BPM and the difficulty list. */
@@ -3310,7 +3365,7 @@
   function convertSelected() {
     var songs = selectedSongs();
 
-    if (!songs.length) {
+    if (!songs.length && !state.mod.characters.length) {
       toast("Nothing ticked.");
       return Promise.resolve();
     }
@@ -3328,16 +3383,21 @@
         });
       });
     }, Promise.resolve()).then(function () {
+      setTreeLabel("converting characters…");
+      return convertCharacters();
+    }).then(function () {
       state.mod.busy = false;
       state.mod.selected = state.mod.songs.indexOf(convertedSongs()[0]);
 
       renderMod();
 
       var failed = songs.filter(function (song) { return !song.converted; }).length;
+      var characters = convertedCharacters().length;
+      var extra = characters ? " and " + plural(characters, "character") : "";
 
       toast(failed
         ? "Converted " + (songs.length - failed) + ", " + failed + " would not read."
-        : "Converted " + plural(songs.length, "song") + ".");
+        : "Converted " + plural(songs.length, "song") + extra + ".");
     });
   }
 
@@ -3524,12 +3584,13 @@
   function buildModOutputs() {
     var settings = state.mod.settings;
     var songs = convertedSongs();
+    var characters = convertedCharacters();
     var root = modId();
     var outputs = [];
 
     state.mod.outputs = outputs;
 
-    if (!songs.length) return;
+    if (!songs.length && !characters.length) return;
 
     if (settings.polymod) {
       outputs.push({
@@ -3574,7 +3635,43 @@
       }
     });
 
-    if (settings.level !== "none") {
+    // Characters come along whole: the file the game reads, the sheet it cuts
+    // up, and the health icon, each kept at the path the game looks in.
+    var taken = {};
+
+    characters.forEach(function (character) {
+      outputs.push({
+        path: root + "/data/characters/" + character.id + ".json",
+        json: character.data,
+        character: character
+      });
+    });
+
+    // Their sheets and icons go in afterwards, sorted, so the tree reads as one
+    // list of characters and then the art they use, folder by folder.
+    var art = [];
+
+    characters.forEach(function (character) {
+      characterAssets(character).forEach(function (asset) {
+        var path = root + "/" + asset.to;
+
+        // Two characters often share one sheet.
+        if (taken[path.toLowerCase()]) return;
+        taken[path.toLowerCase()] = true;
+
+        art.push({
+          path: path,
+          file: asset.from.file,
+          source: asset.from.path,
+          character: character
+        });
+      });
+    });
+
+    art.sort(function (a, b) { return a.path < b.path ? -1 : (a.path > b.path ? 1 : 0); });
+    art.forEach(function (item) { outputs.push(item); });
+
+    if (settings.level !== "none" && songs.length) {
       outputs.push({
         path: root + "/data/levels/" + root + ".json",
         json: {
@@ -3699,7 +3796,10 @@
       ["files read", state.mod.files.length],
       ["songs", state.mod.songs.length],
       ["ticked", selectedSongs().length],
-      ["converted", convertedSongs().length]
+      ["converted", convertedSongs().length],
+      ["characters", convertedCharacters().length
+        + (realCharacters().length > convertedCharacters().length
+          ? " of " + realCharacters().length : "")]
     ];
 
     pairs.forEach(function (pair) {
@@ -3730,9 +3830,82 @@
       }
     });
 
+    realCharacters().forEach(function (character) {
+      character.warnings.forEach(function (warning) {
+        trouble.push("<code>" + escapeHtml(character.id) + "</code>: " + warning);
+      });
+    });
+
+    unknownStages().forEach(function (name) {
+      trouble.push("<code>" + escapeHtml(name) + "</code> is not a stage the game has. Stages do"
+        + " not convert yet, so either bring it over yourself or tick <b>default conversion</b> to"
+        + " put these songs on <code>mainStage</code>.");
+    });
+
+    missingCharacters().forEach(function (name) {
+      trouble.push("<code>" + escapeHtml(name) + "</code> is sung in a converted song but has no"
+        + " character file in this mod. Either it is a character the game already has, or you need"
+        + " to bring it over yourself.");
+    });
+
+    var barColours = convertedCharacters().filter(function (character) {
+      return character.hadBarColour;
+    }).length;
+
+    if (barColours) {
+      trouble.push(plural(barColours, "character") + " carried a health bar colour. A character has"
+        + " no such field any more — the colour comes from the song's album and the icon.");
+    }
+
     var warn = $("cc-mod-warn");
+    var shown = trouble.slice(0, 10);
+
+    if (trouble.length > shown.length) {
+      shown.push("and " + (trouble.length - shown.length) + " more; the report has the rest.");
+    }
+
     warn.hidden = !trouble.length;
-    warn.innerHTML = trouble.length ? "<ul><li>" + trouble.slice(0, 8).join("</li><li>") + "</li></ul>" : "";
+    warn.innerHTML = trouble.length ? "<ul><li>" + shown.join("</li><li>") + "</li></ul>" : "";
+  }
+
+  /**
+   * Characters the converted songs ask for that this mod does not carry. Some
+   * will be the game's own, so this is a list to check rather than an error.
+   */
+  function missingCharacters() {
+    if (state.opts.defaults) return [];
+
+    var have = {};
+    var missing = {};
+
+    convertedCharacters().forEach(function (character) { have[character.id.toLowerCase()] = true; });
+
+    convertedSongs().forEach(function (song) {
+      [song.settings.player, song.settings.girlfriend, song.settings.opponent].forEach(function (id) {
+        if (!id || have[id.toLowerCase()]) return;
+        if (BASE_GAME_CHARACTERS.indexOf(id.toLowerCase()) >= 0) return;
+
+        missing[id] = true;
+      });
+    });
+
+    return Object.keys(missing);
+  }
+
+  /** Stages the converted songs ask for that the game does not ship with. */
+  function unknownStages() {
+    if (state.opts.defaults) return [];
+
+    var missing = {};
+
+    convertedSongs().forEach(function (song) {
+      var stage = song.settings.stage;
+      if (!stage || STAGE_IDS.indexOf(stage) >= 0) return;
+
+      missing[stage] = true;
+    });
+
+    return Object.keys(missing);
   }
 
   function renderTree() {
@@ -4005,10 +4178,15 @@
     $("cc-pick-total").textContent = String(state.mod.songs.length);
 
     var withoutAudio = selectedSongs().filter(function (song) { return !song.audio.inst; }).length;
+    var notes = [];
 
-    $("cc-pick-note").textContent = withoutAudio
-      ? plural(withoutAudio, "ticked song") + " has no instrumental next to it."
-      : "";
+    if (withoutAudio) notes.push(plural(withoutAudio, "ticked song") + " has no instrumental next to it.");
+
+    if (state.mod.characters.length) {
+      notes.push(plural(state.mod.characters.length, "character") + " in this mod come along too.");
+    }
+
+    $("cc-pick-note").textContent = notes.join(" ");
   }
 
   // -------------------------------------------------------------- saving up
@@ -4111,6 +4289,229 @@
       renderModFields();
       renderMod();
     }
+  }
+
+  // ------------------------------------------------------------- characters
+
+  var CHARACTER_VERSION = "1.0.2";
+
+  // Psych counts a sing animation's length in steps; the game counts it in
+  // beats, and there are four steps to a beat.
+  var STEPS_PER_BEAT = 4;
+
+  /**
+   * Turn one Psych character file into the game's own. The two formats hold
+   * the same things under different names, and both subtract their animation
+   * offsets when they draw, so those carry over untouched.
+   */
+  function convertCharacter(character, json) {
+    var animations = [];
+    var warnings = [];
+
+    (json.animations || []).forEach(function (anim) {
+      if (!anim || typeof anim !== "object") return;
+
+      var name = String(anim.anim === undefined ? "" : anim.anim).trim();
+      if (!name) return;
+
+      var offsets = Object.prototype.toString.call(anim.offsets) === "[object Array]"
+        ? [num(anim.offsets[0], 0), num(anim.offsets[1], 0)]
+        : [0, 0];
+
+      var animation = {
+        name: name,
+        prefix: String(anim.name === undefined ? "" : anim.name),
+        offsets: offsets,
+        looped: flag(anim.loop),
+        frameRate: Math.round(num(anim.fps, 24))
+      };
+
+      var indices = anim.indices;
+
+      if (Object.prototype.toString.call(indices) === "[object Array]" && indices.length) {
+        animation.frameIndices = indices.map(function (index) { return Math.round(num(index, 0)); });
+      }
+
+      animations.push(animation);
+    });
+
+    if (!animations.length) warnings.push("no animations in the file");
+
+    var hasIdle = animations.some(function (anim) { return anim.name === "idle"; });
+
+    var image = String(json.image === undefined ? "" : json.image).trim();
+    if (!image) warnings.push("no spritesheet named in the file");
+
+    var data = {
+      version: CHARACTER_VERSION,
+      name: character.id,
+      renderType: renderTypeFor(character, image),
+      assetPath: image,
+      scale: round(num(json.scale, 1)),
+      isPixel: flag(json.no_antialiasing),
+      danceEvery: 1,
+      singTime: round(num(json.sing_duration, 4) / STEPS_PER_BEAT),
+      flipX: flag(json.flip_x),
+      offsets: pointOf(json.position),
+      cameraOffsets: pointOf(json.camera_position),
+      healthIcon: { id: String(json.healthicon || character.id) },
+      animations: animations
+    };
+
+    // The game starts on `idle`; a character without one has to say what to
+    // play instead or it stands on frame zero.
+    if (!hasIdle && animations.length) data.startingAnimation = animations[0].name;
+
+    character.data = data;
+    character.hadBarColour = !!json.healthbar_colors;
+    character.warnings = character.warnings.concat(warnings);
+
+    return data;
+  }
+
+  function pointOf(value) {
+    if (Object.prototype.toString.call(value) !== "[object Array]") return [0, 0];
+    return [round(num(value[0], 0)), round(num(value[1], 0))];
+  }
+
+  /**
+   * Sparrow when there is an XML beside the sheet, Packer when there is a TXT,
+   * and an Animate atlas when the path is a folder holding an Animation.json.
+   */
+  function renderTypeFor(character, image) {
+    if (!image) return "sparrow";
+
+    var base = (character.root + "images/" + image).toLowerCase();
+
+    if (state.mod.byPath[base + ".xml"]) return "sparrow";
+    if (state.mod.byPath[base + ".txt"]) return "packer";
+    if (state.mod.byPath[base + "/animation.json"]) return "animateatlas";
+
+    return "sparrow";
+  }
+
+  /**
+   * The files a converted character needs beside it: its spritesheet, whatever
+   * describes the frames in it, and its health icon.
+   */
+  function characterAssets(character) {
+    var files = [];
+    var data = character.data;
+    if (!data) return files;
+
+    var image = data.assetPath;
+    var base = (character.root + "images/" + image).toLowerCase();
+
+    if (image) {
+      if (data.renderType === "animateatlas") {
+        // The whole folder belongs to the character.
+        var prefix = base + "/";
+        var any = false;
+
+        Object.keys(state.mod.byPath).forEach(function (path) {
+          if (path.indexOf(prefix) !== 0) return;
+
+          var entry = state.mod.byPath[path];
+          files.push({ from: entry, to: "images/" + image + "/" + entry.name });
+          any = true;
+        });
+
+        if (!any) character.warnings.push("its atlas folder is not in this mod");
+      } else {
+        var sheet = state.mod.byPath[base + ".png"];
+        var frames = state.mod.byPath[base + (data.renderType === "packer" ? ".txt" : ".xml")];
+
+        if (sheet) files.push({ from: sheet, to: "images/" + image + ".png" });
+        else character.warnings.push("its spritesheet <code>" + escapeHtml(image)
+          + ".png</code> is not in this mod");
+
+        if (frames) {
+          files.push({ from: frames, to: "images/" + image + (data.renderType === "packer" ? ".txt" : ".xml") });
+        } else if (sheet) {
+          character.warnings.push("there is no frame data beside <code>" + escapeHtml(image)
+            + ".png</code>, so the game cannot cut it up");
+        }
+      }
+    }
+
+    var iconId = data.healthIcon.id;
+    var icon = state.mod.byPath[(character.root + "images/icons/icon-" + iconId).toLowerCase() + ".png"];
+
+    if (icon) {
+      files.push({ from: icon, to: "images/icons/icon-" + iconId + ".png" });
+
+      // A newer style icon is a sheet with an XML beside it; the old two frame
+      // strip is read as it is.
+      var iconFrames = state.mod.byPath[(character.root + "images/icons/icon-" + iconId).toLowerCase() + ".xml"];
+      if (iconFrames) files.push({ from: iconFrames, to: "images/icons/icon-" + iconId + ".xml" });
+    } else {
+      character.warnings.push("its health icon <code>icon-" + escapeHtml(iconId)
+        + ".png</code> is not in this mod, so the game will fall back to a default one");
+    }
+
+    character.assets = files;
+    return files;
+  }
+
+  /** Read every character file the mod holds and convert the ones we can. */
+  function convertCharacters() {
+    var characters = state.mod.characters;
+
+    return characters.reduce(function (chain, character) {
+      return chain.then(function () {
+        character.data = null;
+        character.ignore = false;
+        character.warnings = [];
+
+        if (character.format === "xml") {
+          character.warnings.push("Codename writes its characters as XML, which this does not read yet");
+          return null;
+        }
+
+        return readText(character.entry.file).then(function (text) {
+          var json;
+
+          try {
+            json = JSON.parse(text);
+          } catch (err) {
+            character.warnings.push("not valid JSON");
+            return;
+          }
+
+          if (!json || typeof json !== "object") {
+            character.ignore = true;
+            return;
+          }
+
+          // Already in the game's own format: pass it through as it is.
+          if (json.renderType || json.animations && json.animations.length && json.animations[0].prefix !== undefined) {
+            character.data = json;
+            character.passthrough = true;
+
+            if (!json.version) character.data.version = CHARACTER_VERSION;
+            return;
+          }
+
+          if (!json.animations && !json.image) {
+            character.ignore = true;
+            return;
+          }
+
+          convertCharacter(character, json);
+        }, function () {
+          character.warnings.push("could not be read");
+        });
+      });
+    }, Promise.resolve());
+  }
+
+  function convertedCharacters() {
+    return state.mod.characters.filter(function (character) { return !!character.data; });
+  }
+
+  /** Files in a characters folder that turned out not to be characters. */
+  function realCharacters() {
+    return state.mod.characters.filter(function (character) { return !character.ignore; });
   }
 
   // -------------------------------------------------------------- loading in
