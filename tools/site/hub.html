@@ -153,8 +153,18 @@
 
   .install.ready { display: block; }
 
-  footer { margin: 26px 0 0; font-size: 12px; color: var(--ink-faint); }
+  footer {
+    margin: 26px 0 0;
+    font-size: 12px;
+    color: var(--ink-faint);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+  }
   footer a { color: var(--accent-2); }
+  footer p { margin: 0; flex: 1 1 240px; }
+  .badge { flex: 0 0 auto; display: block; height: 40px; width: auto; }
 </style>
 
 <div class="page">
@@ -222,8 +232,9 @@
   </section>
 
   <footer>
-    Made for <a href="https://github.com/FunkinCrew/Funkin">Friday Night Funkin'</a>. Runs entirely
-    on your own device.
+    <p>Made for <a href="https://github.com/FunkinCrew/Funkin">Friday Night Funkin'</a>. Runs entirely
+      on your own device.</p>
+    <img class="badge" src="brand/made-with-claude.svg" width="208" height="48" alt="Made with Claude">
   </footer>
 </div>
 

@@ -56,3 +56,17 @@ Drop the file in `tools/`, add its name to `TOOLS` in `build.mjs`, and add a
 card to `hub.html`. It picks up the touch layer and the offline caching on its
 own, as long as it is built from the same shell: a `.topbar`, a `.workspace`
 holding `.rail`, `.stage-col` and `.inspector`, and a `.drawer`.
+
+## Brand
+
+`brand/made-with-claude.svg` follows the reader's light/dark setting and is what the
+hub footer uses. `brand/made-with-claude-dark.svg` and `-light.svg` are the same badge
+with the colours baked in, for places that don't honour `prefers-color-scheme` — a
+GitHub README, for one:
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="tools/site/brand/made-with-claude-dark.svg">
+  <img alt="Made with Claude" src="tools/site/brand/made-with-claude-light.svg" height="40">
+</picture>
+```
