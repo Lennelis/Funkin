@@ -24,7 +24,8 @@ const TOOLS = [
   "vslicecharactereditor.html",
   "vslicesheetpacker.html",
   "vsliceleveleditor.html",
-  "vslicecutsceneeditor.html"
+  "vslicecutsceneeditor.html",
+  "vslicestageeditor.html"
 ];
 
 const mobileCss = fs.readFileSync(path.join(here, "mobile.css"), "utf8");
@@ -110,7 +111,14 @@ const hub = fs.readFileSync(path.join(here, "hub.html"), "utf8").replace("/*FONT
 fs.writeFileSync(path.join(out, "index.html"), hub);
 console.log("  + index.html");
 
-for (const asset of ["manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]) {
+for (const asset of [
+  "manifest.webmanifest",
+  "icon-192.png",
+  "icon-512.png",
+  "icon-maskable-512.png",
+  "brand/made-with-claude.svg",
+  ...fs.readdirSync(path.join(here, "hub")).map((name) => "hub/" + name),
+]) {
   const from = path.join(here, asset);
 
   if (!fs.existsSync(from)) {
@@ -118,13 +126,22 @@ for (const asset of ["manifest.webmanifest", "icon-192.png", "icon-512.png", "ic
     continue;
   }
 
-  fs.copyFileSync(from, path.join(out, asset));
+  const to = path.join(out, asset);
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.copyFileSync(from, to);
   console.log(`  + ${asset}`);
 }
 
 // The worker is told what to keep and which build it belongs to, so a new
 // build replaces the old cache instead of serving yesterday's tools.
-const shipped = fs.readdirSync(out).filter((name) => name !== "sw.js");
+function walk(dir, prefix = "") {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const name = prefix + entry.name;
+    return entry.isDirectory() ? walk(path.join(dir, entry.name), name + "/") : [name];
+  });
+}
+
+const shipped = walk(out).filter((name) => name !== "sw.js");
 const files = ["./", ...shipped];
 const version = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
 

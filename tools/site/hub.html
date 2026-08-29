@@ -1,265 +1,415 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#D5187A" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#14111F" media="(prefers-color-scheme: dark)">
-<meta name="description" content="Tools for making Friday Night Funkin' mods in the V-Slice format.">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="V-Slice Tools">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png">
-<link rel="icon" href="icon-192.png">
-<title>V-Slice Tools</title>
-</head>
-<body>
+<title>Funkin' Web Editors</title>
+
 <style>
 /*FONTS*/
-  :root {
-    --font-title: "Funkin LingLong", "Trebuchet MS", Verdana, sans-serif;
-    --font-ui: "Funkin Options", "Trebuchet MS", Verdana, sans-serif;
-    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-    --ground: #F7F4FB;
-    --panel: #FFFFFF;
-    --panel-2: #F0EBF7;
-    --line: #DCD4E8;
-    --line-soft: #E9E3F2;
-    --ink: #1B1526;
-    --ink-dim: #635979;
-    --ink-faint: #8E84A6;
-    --accent: #D5187A;
-    --accent-soft: #FCE7F1;
-    --accent-2: #0F7B8E;
-    --radius: 14px;
+:root {
+  --ground: #604A55;
+  --ink: #FFFFFF;
+  --ink-dim: #B9AEB6;
+
+  /* The art was drawn on a 1080-wide portrait frame. Everything below is sized
+     as a fraction of that frame, so the whole menu scales as one picture. */
+  --frame: 1080;
+  --col: min(100vw, 560px);
+  --u: calc(var(--col) / var(--frame));
+
+  --face-w: calc(925 * var(--u));
+  --gap: calc(150 * var(--u));
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--ground); }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "Funkin Options", "Trebuchet MS", Verdana, sans-serif;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ---- backdrop -----------------------------------------------------------
+   Two wire layers behind the menu. Each is a mirror-doubled tile repeating
+   down the page, and each is offset by a fraction of the scroll, so they
+   drift more slowly than the buttons and the whole thing reads as depth. */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.backdrop i {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background-repeat: repeat-y;
+  background-size: var(--layer-w) auto;
+  background-position: center calc(var(--sy, 0) * 1px);
+  will-change: background-position;
+}
+
+.backdrop .back {
+  --layer-w: calc(var(--col) * 1.18);
+  background-image: url("hub/wires-back.png");
+}
+
+.backdrop .front {
+  --layer-w: var(--col);
+  background-image: url("hub/wires-front.png");
+}
+
+/* ---- page ---------------------------------------------------------------- */
+
+.page {
+  position: relative;
+  z-index: 1;
+  width: var(--col);
+  margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + 18px) 0 calc(env(safe-area-inset-bottom) + 40px);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 calc(60 * var(--u));
+  height: calc(90 * var(--u));
+}
+
+.gear {
+  width: calc(104 * var(--u));
+  height: calc(76 * var(--u));
+  min-width: 34px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: url("hub/settings.png") no-repeat left center / 200% 100%;
+  cursor: pointer;
+}
+
+.gear[aria-expanded="true"] { background-position-x: right; }
+
+.live {
+  width: calc(120 * var(--u));
+  height: calc(40 * var(--u));
+  background: url("hub/live.png") no-repeat center / contain;
+}
+
+.title {
+  margin: calc(60 * var(--u)) 0 calc(70 * var(--u));
+  text-align: center;
+}
+
+.title img {
+  display: block;
+  width: calc(845 * var(--u));
+  height: auto;
+  margin: 0 auto;
+}
+
+/* ---- the menu ------------------------------------------------------------ */
+
+.menu {
+  display: grid;
+  gap: var(--gap);
+  padding: calc(20 * var(--u)) 0 calc(80 * var(--u));
+}
+
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The wire stubs that tie a button back into the background. They hang off
+   the frame edges, behind the button, and cycle so no two neighbours match. */
+.item::before,
+.item::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  z-index: 0;
+  background-repeat: no-repeat;
+  background-size: contain;
+  pointer-events: none;
+}
+
+.item::before { left: 0; }
+.item::after { right: 0; }
+
+.item:nth-child(4n+1)::before { width: calc(214 * var(--u)); height: calc(247 * var(--u)); margin-top: calc(-140 * var(--u)); background-image: url("hub/wire-l1.png"); }
+.item:nth-child(4n+2)::before { width: calc(212 * var(--u)); height: calc(209 * var(--u)); margin-top: calc(-105 * var(--u)); background-image: url("hub/wire-l2.png"); }
+.item:nth-child(4n+3)::before { width: calc(208 * var(--u)); height: calc(176 * var(--u)); margin-top: calc(-88 * var(--u));  background-image: url("hub/wire-l3.png"); }
+.item:nth-child(4n+4)::before { width: calc(183 * var(--u)); height: calc(225 * var(--u)); margin-top: calc(-112 * var(--u)); background-image: url("hub/wire-l4.png"); }
+
+.item:nth-child(4n+1)::after { width: calc(225 * var(--u)); height: calc(164 * var(--u)); margin-top: calc(-60 * var(--u));  background-image: url("hub/wire-r1.png"); }
+.item:nth-child(4n+2)::after { width: calc(308 * var(--u)); height: calc(256 * var(--u)); margin-top: calc(-160 * var(--u)); background-image: url("hub/wire-r2.png"); }
+.item:nth-child(4n+3)::after { width: calc(190 * var(--u)); height: calc(177 * var(--u)); margin-top: calc(-88 * var(--u));  background-image: url("hub/wire-r3.png"); }
+.item:nth-child(4n+4)::after { width: calc(195 * var(--u)); height: calc(229 * var(--u)); margin-top: calc(-114 * var(--u)); background-image: url("hub/wire-r4.png"); }
+
+/* Three states live side by side in one strip: locked, idle, pressed. */
+.face {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: var(--face-w);
+  aspect-ratio: 925 / 193;
+  background-repeat: no-repeat;
+  background-size: 300% 100%;
+  background-position-x: 50%;
+  transition: transform 90ms ease-out;
+}
+
+.item.locked .face { background-position-x: 0%; }
+
+.item:not(.locked):hover .face,
+.item:not(.locked):focus-visible .face { background-position-x: 100%; }
+
+.item:not(.locked):active .face {
+  background-position-x: 100%;
+  transform: scale(0.97);
+}
+
+.item.locked { cursor: default; }
+
+.item[data-tool="character"]   .face { background-image: url("hub/btn-character.png"); }
+.item[data-tool="stage"]       .face { background-image: url("hub/btn-stage.png"); }
+.item[data-tool="cutscene"]    .face { background-image: url("hub/btn-cutscene.png"); }
+.item[data-tool="camera"]      .face { background-image: url("hub/btn-camera.png"); }
+.item[data-tool="sheetpacker"] .face { background-image: url("hub/btn-sheetpacker.png"); }
+.item[data-tool="level"]       .face { background-image: url("hub/btn-level.png"); }
+.item[data-tool="converter"]   .face { background-image: url("hub/btn-converter.png"); }
+
+/* ---- words --------------------------------------------------------------- */
+
+.about {
+  padding: 0 calc(60 * var(--u));
+  color: var(--ink-dim);
+  font-size: calc(44 * var(--u));
+  line-height: 1.45;
+}
+
+.about h2 {
+  margin: 0 0 0.9em;
+  font-size: 1em;
+  font-weight: 400;
+}
+
+.about p { margin: 0 0 1em; text-indent: 1.4em; }
+
+.about a { color: var(--ink); }
+
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(40 * var(--u));
+  padding: calc(60 * var(--u)) 0 0;
+  color: var(--ink-dim);
+  font-size: calc(42 * var(--u));
+}
+
+footer a { color: var(--ink-dim); text-decoration: none; }
+footer a:hover { color: var(--ink); }
+footer span { opacity: 0.6; }
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- the switcher tab ---------------------------------------------------- */
+
+.switcher {
+  position: fixed;
+  z-index: 3;
+  right: 0;
+  top: 46%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+}
+
+.tab {
+  width: calc(113 * var(--u));
+  height: calc(232 * var(--u));
+  min-width: 46px;
+  min-height: 94px;
+  padding: 0;
+  border: 0;
+  background: url("hub/switcher.png") no-repeat center / contain;
+  cursor: pointer;
+}
+
+.jump {
+  display: grid;
+  gap: 2px;
+  margin-right: -1px;
+  padding: 10px 8px;
+  border: 3px solid #7E7488;
+  border-right: 0;
+  border-radius: 18px 0 0 18px;
+  background: #171419;
+}
+
+.jump[hidden] { display: none; }
+
+.jump a {
+  padding: 7px 12px;
+  border-radius: 10px;
+  color: #C9C1CE;
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.jump a:hover { background: #2C2731; color: #FFFFFF; }
+
+.jump a[aria-disabled="true"] { opacity: 0.45; pointer-events: none; }
+
+/* Wider than the art frame: the menu stays a phone-shaped column, because
+   that is the picture. Only the backdrop spreads out. */
+@media (min-width: 900px) {
+  :root { --col: 560px; }
+  .about { font-size: 17px; }
+  footer { font-size: 18px; }
+
+  /* Off the column the layer just stops, so fade it out at its own edges
+     rather than leaving the wires sliced down a straight line. */
+  .backdrop i {
+    -webkit-mask-image: var(--fade);
+    mask-image: var(--fade);
+    --fade: linear-gradient(to right,
+      transparent calc(50% - var(--layer-w) / 2),
+      #000 calc(50% - var(--layer-w) / 2 + 70px),
+      #000 calc(50% + var(--layer-w) / 2 - 70px),
+      transparent calc(50% + var(--layer-w) / 2));
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --ground: #14111F;
-      --panel: #1D1930;
-      --panel-2: #262038;
-      --line: #322B4A;
-      --line-soft: #272138;
-      --ink: #EFEAF7;
-      --ink-dim: #ADA2C6;
-      --ink-faint: #7A6F94;
-      --accent: #FF4FA3;
-      --accent-soft: #351630;
-      --accent-2: #4ED9E8;
-    }
-  }
+  /* Keep the tab on the menu instead of stranding it at the window edge. */
+  .switcher { right: max(0px, calc(50vw - var(--col) / 2 - 26px)); }
+}
 
-  * { box-sizing: border-box; }
-
-  body {
-    margin: 0;
-    min-height: 100dvh;
-    background: var(--ground);
-    color: var(--ink);
-    font-family: var(--font-ui);
-    font-size: 15px;
-    line-height: 1.45;
-    -webkit-font-smoothing: antialiased;
-    padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-             max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-  }
-
-  .page { max-width: 900px; margin: 0 auto; }
-
-  header { margin-bottom: 6px; }
-
-  .wordmark {
-    font-family: var(--font-title);
-    font-size: clamp(28px, 8vw, 42px);
-    line-height: 1.1;
-    color: var(--accent);
-  }
-
-  .wordmark span { color: var(--ink); }
-
-  .blurb { color: var(--ink-dim); font-size: 14px; max-width: 54ch; margin: 8px 0 0; }
-
-  .tools { display: grid; gap: 10px; margin: 22px 0 0; }
-
-  @media (min-width: 640px) { .tools { grid-template-columns: 1fr 1fr; } }
-
-  .tool {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    align-items: start;
-    gap: 14px;
-    padding: 16px;
-    min-height: 84px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--panel);
-    color: inherit;
-    text-decoration: none;
-    transition: border-color .12s, transform .06s;
-  }
-
-  .tool:hover { border-color: var(--accent); }
-  .tool:active { transform: translateY(1px); }
-  .tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  .glyph {
-    width: 42px;
-    height: 42px;
-    display: grid;
-    place-items: center;
-    border-radius: 11px;
-    background: var(--accent-soft);
-    font-size: 21px;
-    line-height: 1;
-  }
-
-  .tool h2 { margin: 0; font-size: 16px; font-family: var(--font-title); letter-spacing: .01em; }
-  .tool p { margin: 3px 0 0; font-size: 13px; color: var(--ink-dim); }
-  .tool .takes { display: block; margin-top: 5px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-faint); }
-
-  .note {
-    margin: 22px 0 0;
-    padding: 14px 16px;
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius);
-    background: var(--panel-2);
-    font-size: 13px;
-    color: var(--ink-dim);
-  }
-
-  .note h3 { margin: 0 0 6px; font-size: 13px; letter-spacing: .05em; color: var(--ink); }
-  .note p { margin: 0 0 6px; }
-  .note p:last-child { margin-bottom: 0; }
-  .note code { font-family: var(--font-mono); font-size: 12px; }
-
-  .install {
-    display: none;
-    margin: 16px 0 0;
-    min-height: 46px;
-    width: 100%;
-    padding: 10px 16px;
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    background: var(--accent);
-    color: #FFF;
-    font: inherit;
-    font-size: 15px;
-    cursor: pointer;
-  }
-
-  .install.ready { display: block; }
-
-  footer { margin: 26px 0 0; font-size: 12px; color: var(--ink-faint); }
-  footer a { color: var(--accent-2); }
+@media (prefers-reduced-motion: reduce) {
+  .backdrop i { background-position: center 0; }
+  .face { transition: none; }
+}
 </style>
 
+<div class="backdrop" aria-hidden="true">
+  <i class="back"></i>
+  <i class="front"></i>
+</div>
+
 <div class="page">
-  <header>
-    <div class="wordmark">V-SLICE <span>TOOLS</span></div>
-    <p class="blurb">Everything for putting a mod together in the format the game reads now. Each
-      one runs on its own, here in the browser — nothing you open is uploaded anywhere.</p>
+  <header class="top">
+    <button class="gear" type="button" aria-label="Settings" aria-expanded="false"></button>
+    <span class="live" role="img" aria-label="Live"></span>
   </header>
 
-  <button class="install" id="install" type="button">Add to home screen</button>
+  <h1 class="title"><img src="hub/main-title.png" alt="Funkin' Web Editors"></h1>
 
-  <main class="tools">
-    <a class="tool" href="vslicechartconverter.html">
-      <span class="glyph" aria-hidden="true">🎵</span>
-      <span>
-        <h2>Chart Converter</h2>
-        <p>Old charts, and whole Psych or Codename mods, into V-Slice charts and a mod folder.</p>
-        <span class="takes">chart .json, a mod folder</span>
-      </span>
-    </a>
+  <nav class="menu" aria-label="Editors">
+    <a class="item" data-tool="character" href="vslicecharactereditor.html"><span class="face"></span><span class="sr">Character Editor</span></a>
+    <a class="item" data-tool="stage" href="vslicestageeditor.html"><span class="face"></span><span class="sr">Stage Editor</span></a>
+    <a class="item" data-tool="cutscene" href="vslicecutsceneeditor.html"><span class="face"></span><span class="sr">Cutscene Editor</span></a>
+    <span class="item locked" data-tool="camera" role="link" aria-disabled="true"><span class="face"></span><span class="sr">Camera Editor, not built yet</span></span>
+    <a class="item" data-tool="sheetpacker" href="vslicesheetpacker.html"><span class="face"></span><span class="sr">Sheet Packer</span></a>
+    <a class="item" data-tool="level" href="vsliceleveleditor.html"><span class="face"></span><span class="sr">Level Editor</span></a>
+    <a class="item" data-tool="converter" href="vslicechartconverter.html"><span class="face"></span><span class="sr">Chart Converter</span></a>
+  </nav>
 
-    <a class="tool" href="vslicecharactereditor.html">
-      <span class="glyph" aria-hidden="true">🕺</span>
-      <span>
-        <h2>Character Editor</h2>
-        <p>Animations, offsets and the health icon, with the character dancing as you set them.</p>
-        <span class="takes">.png, atlas .xml, character .json</span>
-      </span>
-    </a>
-
-    <a class="tool" href="vslicesheetpacker.html">
-      <span class="glyph" aria-hidden="true">🖼️</span>
-      <span>
-        <h2>Sheet Packer</h2>
-        <p>A folder of frames packed into one spritesheet with the Sparrow XML beside it.</p>
-        <span class="takes">a PNG sequence, or a .zip</span>
-      </span>
-    </a>
-
-    <a class="tool" href="vsliceleveleditor.html">
-      <span class="glyph" aria-hidden="true">🏙️</span>
-      <span>
-        <h2>Level Editor</h2>
-        <p>Story weeks: the songs in them, the art behind them and the props on top.</p>
-        <span class="takes">.png, .xml, level .json, .zip</span>
-      </span>
-    </a>
-
-    <a class="tool" href="vslicecutsceneeditor.html">
-      <span class="glyph" aria-hidden="true">🎬</span>
-      <span>
-        <h2>Cutscene Editor</h2>
-        <p>Stage a cutscene and write out the script that plays it.</p>
-        <span class="takes">.fnfs, stage .json, .zip of art</span>
-      </span>
-    </a>
-  </main>
-
-  <section class="note">
-    <h3>ON A PHONE</h3>
-    <p>Add this to your home screen and it opens like an app, keeps working with no signal, and
-      remembers what you were doing.</p>
-    <p>Hand the tools a <code>.zip</code> rather than a folder — phones have no folder picker — and
-      what comes out is a zip too, ready to unpack into <code>mods/</code>.</p>
+  <section class="about">
+    <h2>What are Funkin' Web Editors?</h2>
+    <p>Funkin' Web Editors are browser-based FNF editors that you can use offline, at
+      any time, for free and without login required! This tool is what you're looking
+      for, PC and mobile users are welcome! These are the first ever public released AI
+      coded online editors also available for mobile to use on the go! Feel free to test
+      it out whenever you like!</p>
   </section>
 
   <footer>
-    Made for <a href="https://github.com/FunkinCrew/Funkin">Friday Night Funkin'</a>. Runs entirely
-    on your own device.
+    <a href="https://github.com/Lennelis/Funkin">About</a>
+    <span>&middot;</span>
+    <a href="https://github.com/Lennelis/Funkin">Discord</a>
   </footer>
 </div>
+
+<aside class="switcher">
+  <div class="jump" id="jump" hidden>
+    <a href="vslicecharactereditor.html">Character Editor</a>
+    <a href="vslicestageeditor.html">Stage Editor</a>
+    <a href="vslicecutsceneeditor.html">Cutscene Editor</a>
+    <a aria-disabled="true">Camera Editor</a>
+    <a href="vslicesheetpacker.html">Sheet Packer</a>
+    <a href="vsliceleveleditor.html">Level Editor</a>
+    <a href="vslicechartconverter.html">Chart Converter</a>
+  </div>
+  <button class="tab" type="button" aria-label="Jump to an editor" aria-controls="jump" aria-expanded="false"></button>
+</aside>
 
 <script>
 (function () {
   "use strict";
 
-  // Chrome hands over the install prompt; the button only appears if there is
-  // one to show. Everywhere else it stays hidden and Add to Home Screen is
-  // done from the browser's own menu.
-  var waiting = null;
-  var button = document.getElementById("install");
+  var back = document.querySelector(".backdrop .back");
+  var front = document.querySelector(".backdrop .front");
+  var still = window.matchMedia("(prefers-reduced-motion: reduce)");
+  var ticking = false;
 
-  window.addEventListener("beforeinstallprompt", function (event) {
-    event.preventDefault();
-    waiting = event;
-    button.classList.add("ready");
-  });
+  /* The layers trail the page instead of matching it, which is the whole
+     trick: the further back a layer sits, the less it moves. */
+  function parallax() {
+    ticking = false;
+    if (still.matches) return;
 
-  button.addEventListener("click", function () {
-    if (!waiting) return;
-
-    waiting.prompt();
-    waiting = null;
-    button.classList.remove("ready");
-  });
-
-  window.addEventListener("appinstalled", function () {
-    waiting = null;
-    button.classList.remove("ready");
-  });
-
-  if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
-    navigator.serviceWorker.register("sw.js").catch(function () { /* not fatal */ });
+    var y = window.pageYOffset || document.documentElement.scrollTop || 0;
+    back.style.setProperty("--sy", -(y * 0.12).toFixed(1));
+    front.style.setProperty("--sy", -(y * 0.3).toFixed(1));
   }
+
+  window.addEventListener("scroll", function () {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(parallax);
+  }, { passive: true });
+
+  parallax();
+
+  var tab = document.querySelector(".tab");
+  var jump = document.getElementById("jump");
+
+  tab.addEventListener("click", function () {
+    var open = jump.hidden;
+    jump.hidden = !open;
+    tab.setAttribute("aria-expanded", String(open));
+  });
+
+  document.addEventListener("click", function (event) {
+    if (jump.hidden || event.target.closest(".switcher")) return;
+    jump.hidden = true;
+    tab.setAttribute("aria-expanded", "false");
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape" || jump.hidden) return;
+    jump.hidden = true;
+    tab.setAttribute("aria-expanded", "false");
+    tab.focus();
+  });
 })();
 </script>
-</body>
-</html>
