@@ -705,6 +705,21 @@
             <label for="cc-opt-defaults">default conversion</label>
           </span>
         </div>
+
+        <div class="field">
+          <label for="cc-opt-lanes">lane numbers</label>
+          <select id="cc-opt-lanes">
+            <option value="auto">work it out</option>
+            <option value="relative">by section</option>
+            <option value="absolute">0-3 player, 4-7 opponent</option>
+          </select>
+        </div>
+        <p class="hint">Charts disagree about what a lane number means. Written <b>by section</b>,
+          a lane is numbered from the point of view of whoever owns the section, so in an opponent
+          section lanes 0-3 are the opponent. Written the other way the lane says who sings outright
+          and <code>mustHitSection</code> only moves the camera. Read the wrong way round, a whole
+          song lands on one character. Left to <b>work it out</b>, each chart is judged on how its
+          opponent sections are numbered.</p>
         <p class="hint">Default conversion writes every song with the cast and stage the game ships
           with — <code>bf</code>, <code>gf</code> and <code>dad</code> on <code>mainStage</code>.
           Use it while the characters and stages from the old mod have not been ported yet, so the
@@ -922,6 +937,17 @@
             <label for="cc-mod-swap">swap sides on every song</label>
           </span>
         </div>
+
+        <div class="field">
+          <label for="cc-mod-opt-lanes">lane numbers</label>
+          <select id="cc-mod-opt-lanes">
+            <option value="auto">work it out</option>
+            <option value="relative">by section</option>
+            <option value="absolute">0-3 player, 4-7 opponent</option>
+          </select>
+        </div>
+        <p class="hint">Whether a lane number is counted from the section that owns it, or says
+          outright who sings. Each chart is judged on its own unless you pick one here.</p>
         <p class="hint">Default conversion writes every song with <code>bf</code>, <code>gf</code>
           and <code>dad</code> on <code>mainStage</code>, for while the characters and stages have
           not been ported over yet. Swap sides is for when the notes come out on the wrong
@@ -1227,7 +1253,10 @@
 
       // Write every song with the stock cast on the stock stage, for when the
       // characters and stages of the old mod have not been ported yet.
-      defaults: false
+      defaults: false,
+
+      // How to read a note's lane: "auto", "relative" or "absolute".
+      lanes: "auto"
     },
 
     outputs: [],
@@ -1385,6 +1414,10 @@
         state.opts.dedupe = parsed.opts.dedupe !== false;
         state.opts.erect = parsed.opts.erect !== false;
         state.opts.defaults = parsed.opts.defaults === true;
+
+        if (parsed.opts.lanes === "relative" || parsed.opts.lanes === "absolute") {
+          state.opts.lanes = parsed.opts.lanes;
+        }
       }
     } catch (err) { /* ignore malformed leftovers */ }
   }
@@ -1541,12 +1574,70 @@
   }
 
   /**
+   * Charts disagree about what a lane number means, and getting it wrong puts
+   * a whole song on one character.
+   *
+   * The old way is section-relative: a lane is numbered from the point of view
+   * of whoever the section belongs to, so in a `mustHitSection: false` section
+   * lanes 0-3 are the opponent and 4-7 are the player. That is what the game's
+   * own importer assumes.
+   *
+   * Plenty of charts are written the other way, with the lane saying who sings
+   * outright — 0-3 the player, 4-7 the opponent — and `mustHitSection` left to
+   * steer nothing but the camera.
+   *
+   * They are told apart by the sections the player does not own: written the
+   * old way those hold the opponent's notes in lanes 0-3, and written the new
+   * way they hold them in 4-7.
+   */
+  function readsAbsoluteLanes(sections, report) {
+    var low = 0;
+    var high = 0;
+
+    for (var s = 0; s < sections.length; s++) {
+      var section = sections[s] || {};
+      if (flag(section.mustHitSection)) continue;
+
+      var sectionNotes = section.sectionNotes;
+      if (Object.prototype.toString.call(sectionNotes) !== "[object Array]") continue;
+
+      for (var n = 0; n < sectionNotes.length; n++) {
+        var raw = sectionNotes[n];
+        if (Object.prototype.toString.call(raw) !== "[object Array]") continue;
+
+        var data = Math.floor(num(raw[1], NaN));
+        if (!isFinite(data) || data < 0) continue;
+
+        if (data % (STRUMLINE_SIZE * 2) < STRUMLINE_SIZE) low++;
+        else high++;
+      }
+    }
+
+    report.plainLow = low;
+    report.plainHigh = high;
+
+    // Too few notes to tell means nothing to go on, so keep to what the game
+    // itself would do.
+    if (low + high < 16) return false;
+
+    return high / (low + high) > 0.65;
+  }
+
+  /**
    * Rebuild one chart's notes, events and time changes from the sections it was
    * loaded with. Called again whenever a conversion option changes, so nothing
    * has to be re-read from disk.
    */
   function convert(chart) {
     var report = blankReport();
+
+    // Worked out either way, so a setting that disagrees with the chart can
+    // be pointed out rather than silently obeyed.
+    var detected = readsAbsoluteLanes(chart.sections, report);
+    var absolute = state.opts.lanes === "auto" ? detected : state.opts.lanes === "absolute";
+
+    report.laneReading = absolute ? "absolute" : "relative";
+    report.laneReadingForced = state.opts.lanes !== "auto" && detected !== absolute;
 
     var notes = [];
     var cameraCuts = [];
@@ -1630,9 +1721,9 @@
             }
           }
 
-          // The old format numbers lanes by who owns the section, not by who
-          // owns the lane, so half of them have to be swapped back.
-          if (!mustHit) {
+          // Section-relative charts number lanes by who owns the section, not
+          // by who owns the lane, so half of them have to be swapped back.
+          if (!mustHit && !absolute) {
             data = data >= STRUMLINE_SIZE ? data - STRUMLINE_SIZE : data + STRUMLINE_SIZE;
             report.flipped++;
           }
@@ -2224,6 +2315,7 @@
       ["notes", report.notes],
       ["player", report.player],
       ["opponent", report.opponent],
+      ["lanes", report.laneReading === "absolute" ? "outright" : "by section"],
       ["holds", report.holds],
       ["sections", report.sections],
       ["camera", report.cameraEvents],
@@ -2272,7 +2364,9 @@
         + (report.mustHitSections === 0 || report.plainSections === 0
           ? " Every section says the same thing, so the chart never marks whose turn it is —"
           + " that is why it all lands on one character."
-          : " If that looks wrong for this song, tick <b>swap who plays what</b>."));
+          : " Its lane numbers were read <b>" + (report.laneReading === "absolute"
+            ? "outright" : "by section") + "</b>; try the other setting under <b>lane numbers</b>,"
+          + " or tick <b>swap who plays what</b>."));
     }
 
     if (!report.notes) {
@@ -2284,6 +2378,14 @@
       warnings.push(plural(report.eventNotes, "event") + " left behind — the new format keeps"
         + " events in their own list, and there is no safe way to guess what most of them meant."
         + " The report lists them by name.");
+    }
+
+    if (report.laneReadingForced) {
+      warnings.push("this chart's lane numbers look like they are meant to be read <b>"
+        + (report.laneReading === "absolute" ? "by section" : "outright") + "</b>, but <b>lane"
+        + " numbers</b> is set to the other one. In the sections the player does not own, "
+        + Math.round(report.plainHigh / Math.max(1, report.plainLow + report.plainHigh) * 100)
+        + "% of the notes sit in lanes 4-7.");
     }
 
     if (report.noMustHit) {
@@ -2412,6 +2514,18 @@
           + plural(info.plainSections, "other"),
           plural(info.sourceLow, "note") + " in lanes 0-3, " + plural(info.sourceHigh, "note")
           + " in lanes 4-7");
+
+        var opponentNotes = info.plainLow + info.plainHigh;
+
+        row("lane numbers, judged on the " + plural(opponentNotes, "note")
+          + " in the sections the player does not own",
+          info.laneReading === "absolute"
+            ? "read outright: <b>0-3 the player, 4-7 the opponent</b>"
+              + (opponentNotes ? " (" + Math.round(info.plainHigh / opponentNotes * 100)
+                + "% of them sit in 4-7)" : "")
+            : "read <b>by section</b>, the way the game's own importer does"
+              + (opponentNotes ? " (" + Math.round(info.plainLow / opponentNotes * 100)
+                + "% of them sit in 0-3)" : ""));
       }
 
       row("whose notes they are",
@@ -3343,6 +3457,10 @@
       plainSections: 0,
       sourceLow: 0,
       sourceHigh: 0,
+      plainLow: 0,
+      plainHigh: 0,
+      laneReading: "relative",
+      laneReadingForced: false,
       player: 0,
       opponent: 0
     };
@@ -4749,6 +4867,31 @@
     });
   }
 
+  /** The same as bindOption, for a setting that is a choice rather than a tick. */
+  function bindChoice(key, ids) {
+    ids.forEach(function (id) {
+      var select = $(id);
+      select.value = state.opts[key];
+
+      select.addEventListener("change", function () {
+        state.opts[key] = select.value;
+
+        ids.forEach(function (other) { $(other).value = select.value; });
+        save();
+
+        if (state.mode === "mod") {
+          if (convertedSongs().length) convertSelected();
+          else renderMod();
+
+          return;
+        }
+
+        rebuildAll();
+        render();
+      });
+    });
+  }
+
   function bindDrop() {
     openWith("cc-drop", "cc-file-input");
     openWith("cc-mod-drop", "cc-mod-input");
@@ -5188,6 +5331,7 @@
     bindOption("dedupe", ["cc-opt-dedupe", "cc-mod-opt-dedupe"]);
     bindOption("erect", ["cc-opt-erect", "cc-mod-opt-erect"]);
     bindOption("defaults", ["cc-opt-defaults", "cc-mod-defaults"]);
+    bindChoice("lanes", ["cc-opt-lanes", "cc-mod-opt-lanes"]);
 
     $("cc-swap").addEventListener("change", function () {
       state.song.swapSides = this.checked;
