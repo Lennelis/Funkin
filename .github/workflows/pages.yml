@@ -1,0 +1,59 @@
+# Publishes the modding tools in tools/ as a website, so they can be opened on
+# any device and added to a phone's home screen.
+#
+# The repository needs Pages set to "GitHub Actions" once, under
+# Settings -> Pages -> Build and deployment -> Source.
+
+name: Publish the tools site
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/**'
+      - '.github/workflows/pages.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A queued deploy should wait rather than be cancelled, so the last push wins.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build the site
+        working-directory: tools/site
+        run: node build.mjs dist
+
+      - name: Upload it
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: tools/site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Deploy to Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

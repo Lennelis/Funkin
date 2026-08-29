@@ -1,0 +1,189 @@
+/* ---------------------------------------------------------------------------
+   The touch layer. Every one of these tools is built from the same shell —
+   a topbar, a workspace of three panels, and a drawer underneath — so one
+   stylesheet turns all of them into something usable with a thumb.
+
+   Nothing here applies on a wide screen; the desktop layout is left alone.
+   --------------------------------------------------------------------------- */
+
+.pane-tabs { display: none; }
+
+/* A tab bar belongs to one workspace; when that workspace is put away, so is
+   it. This has to outrank the display below, which the hidden attribute alone
+   would not. */
+.pane-tabs[hidden] { display: none !important; }
+
+@media (max-width: 900px) {
+  :root { --tap: 44px; }
+
+  html, body { overscroll-behavior-y: contain; }
+
+  /* One screenful, with the middle scrolling rather than the page.
+
+     The desktop shell is a three row grid, but inserting a tab bar above each
+     workspace makes the row count wrong and stretches whatever lands on the
+     flexible row. A column of boxes that size themselves is the right shape
+     here, whatever a tool happens to hold. */
+  .shell {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  .shell > .topbar, .shell > .pane-tabs { flex: none; }
+  .shell > .workspace, .shell > .drawer { flex: 1 1 auto; min-height: 0; }
+
+  .topbar {
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    gap: 10px;
+  }
+
+  .wordmark { font-size: 20px; }
+
+  /* The status chips are a readout, not a control; they go last and wrap. */
+  .topbar-status { width: 100%; margin-left: 0; order: 3; gap: 6px; }
+  .chip { font-size: 12px; padding: 2px 9px; }
+
+  .topbar-tools { margin-left: auto; }
+  .topbar-tools .btn { min-height: var(--tap); padding: 6px 12px; }
+
+  /* --------------------------------------------------------------- panes */
+
+  .pane-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 6px max(8px, env(safe-area-inset-left)) 6px max(8px, env(safe-area-inset-right));
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .pane-tabs::-webkit-scrollbar { display: none; }
+
+  .pane-tab {
+    flex: 1 0 auto;
+    min-height: 38px;
+    padding: 6px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel-2);
+    color: var(--ink-dim);
+    font: inherit;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .pane-tab[aria-selected="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #FFF;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr !important;
+    gap: 0;
+    min-height: 0;
+  }
+
+  /* Only the chosen panel is on screen. */
+  .workspace > .rail,
+  .workspace > .inspector,
+  .workspace > .stage-col,
+  .drawer { display: none; }
+
+  .workspace[data-pane="rail"] > .rail,
+  .workspace[data-pane="inspector"] > .inspector { display: block; }
+
+  .workspace[data-pane="stage"] > .stage-col { display: flex; }
+
+  body[data-pane="drawer"] .workspace { display: none; }
+  body[data-pane="drawer"] .drawer { display: block; overflow-y: auto; }
+
+  .rail, .inspector, .drawer {
+    max-height: none;
+    height: 100%;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  .stage-col { min-height: 0; height: 100%; }
+
+  /* ------------------------------------------------------------ controls */
+
+  .btn { min-height: var(--tap); padding: 8px 14px; }
+  .pad-row .btn, .nudge-pad .btn { min-width: var(--tap); }
+  .btn-row { gap: 10px; }
+
+  .field { grid-template-columns: 1fr; gap: 4px; }
+  .field > label { font-size: 13px; }
+
+  .field input[type="text"],
+  .field input[type="number"],
+  .field select,
+  .sheet-tools input[type="search"] {
+    min-height: var(--tap);
+    font-size: 16px; /* anything smaller and the browser zooms in on focus */
+  }
+
+  .switch { min-height: 36px; }
+  .switch input { width: 20px; height: 20px; }
+  .pick { padding: 10px 9px; }
+  .pick input { width: 22px; height: 22px; }
+  .item-row, .anim-item, .prefix-row, .frame-card { min-height: 40px; }
+  .file-tab { min-height: 34px; }
+
+  /* The stage draws its own header along the top now, so the floating readouts
+     move below it rather than sitting on the lane arrows. */
+  .stage-readout { top: 44px; left: 8px; }
+  .readout { font-size: 11.5px; }
+
+  /* The transport is a strip of small buttons; let it wrap and breathe. */
+  .transport { gap: 6px 8px; padding: 8px 10px max(8px, env(safe-area-inset-bottom)); }
+  .transport .btn { min-height: 38px; padding: 6px 11px; }
+  .divider { display: none; }
+
+  /* --------------------------------------------------------------- text */
+
+  .hint { font-size: 12.5px; max-width: none; }
+  .panel-body { padding: 12px max(14px, env(safe-area-inset-left)) 18px; }
+  textarea { font-size: 13px !important; }
+
+  /* -------------------------------------------------------------- sheets */
+
+  .overlay { padding: 0; align-items: stretch; }
+
+  .sheet, .sheet-wide {
+    width: 100%;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .sheet-foot {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    position: sticky;
+    bottom: 0;
+    background: var(--panel);
+  }
+
+  .sheet-foot .btn { flex: 1 1 auto; }
+  .report-row { grid-template-columns: 1fr; gap: 2px; }
+  .report-arrow { display: none; }
+  .frame-grid { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
+  /* Clear of the transport strip, which is where the buttons you just pressed
+     are. Its height is measured rather than guessed, since it differs from
+     tool to tool. */
+  .toast {
+    bottom: calc(var(--transport-h, 56px) + max(14px, env(safe-area-inset-bottom)));
+    max-width: calc(100vw - 32px);
+    text-align: center;
+  }
+}
+
+/* A canvas should never be scrolled away by the page while it is being panned. */
+@media (max-width: 900px) and (pointer: coarse) {
+  canvas { touch-action: none; }
+}
