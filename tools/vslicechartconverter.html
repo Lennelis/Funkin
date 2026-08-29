@@ -710,16 +710,18 @@
           <label for="cc-opt-lanes">lane numbers</label>
           <select id="cc-opt-lanes">
             <option value="auto">work it out</option>
-            <option value="relative">by section</option>
             <option value="absolute">0-3 player, 4-7 opponent</option>
+            <option value="relative">by section</option>
           </select>
         </div>
-        <p class="hint">Charts disagree about what a lane number means. Written <b>by section</b>,
-          a lane is numbered from the point of view of whoever owns the section, so in an opponent
-          section lanes 0-3 are the opponent. Written the other way the lane says who sings outright
-          and <code>mustHitSection</code> only moves the camera. Read the wrong way round, a whole
-          song lands on one character. Left to <b>work it out</b>, each chart is judged on how its
-          opponent sections are numbered.</p>
+        <p class="hint">Charts disagree about what a lane number means. Written <b>0-3 player, 4-7
+          opponent</b> the lane says who sings outright and <code>mustHitSection</code> only moves
+          the camera. Written <b>by section</b> a lane is counted from whoever owns the section, so
+          in an opponent section lanes 0-3 are the opponent — that is what the game's own importer
+          assumes. Read the wrong way round, a whole song lands on one character. Left to <b>work it
+          out</b>, each chart is judged on how its opponent sections are numbered, and anything
+          without a clear answer is read outright. Difficulties of one song are often written
+          differently, so this is decided per file.</p>
         <p class="hint">Default conversion writes every song with the cast and stage the game ships
           with — <code>bf</code>, <code>gf</code> and <code>dad</code> on <code>mainStage</code>.
           Use it while the characters and stages from the old mod have not been ported yet, so the
@@ -942,8 +944,8 @@
           <label for="cc-mod-opt-lanes">lane numbers</label>
           <select id="cc-mod-opt-lanes">
             <option value="auto">work it out</option>
-            <option value="relative">by section</option>
             <option value="absolute">0-3 player, 4-7 opponent</option>
+            <option value="relative">by section</option>
           </select>
         </div>
         <p class="hint">Whether a lane number is counted from the section that owns it, or says
@@ -1616,11 +1618,14 @@
     report.plainLow = low;
     report.plainHigh = high;
 
-    // Too few notes to tell means nothing to go on, so keep to what the game
-    // itself would do.
-    if (low + high < 16) return false;
+    // Nothing to go on means the newer reading, which is what most charts
+    // written since are, and what a chart with nothing to read cannot
+    // contradict.
+    if (low + high < 12) return true;
 
-    return high / (low + high) > 0.65;
+    // Written the old way these sections are almost all in lanes 0-3, and
+    // written the new way almost all in 4-7, so any real lean settles it.
+    return high >= low;
   }
 
   /**
@@ -2944,6 +2949,7 @@
   state.mod = {
     files: [],
     byPath: {},
+    byImage: {},
     songs: [],
     characters: [],
     outputs: [],
@@ -3062,6 +3068,7 @@
     var byKey = {};
     var dirs = {};
     var byPath = {};
+    var byImage = {};
 
     entries.forEach(function (entry) {
       var list = dirs[entry.dir.toLowerCase()];
@@ -3069,9 +3076,16 @@
       list.push(entry);
 
       byPath[entry.lower] = entry;
+
+      // Mods put their images in different places depending on the engine and
+      // how the folder was arranged, so anything under an images folder is
+      // also filed by the part of the path a character would name it by.
+      var at = entry.lower.lastIndexOf("images/");
+      if (at >= 0) byImage[entry.lower.slice(at + 7)] = entry;
     });
 
     state.mod.byPath = byPath;
+    state.mod.byImage = byImage;
     state.mod.characters = scanCharacters(entries);
 
     function songFor(root, folder, engine) {
@@ -4021,6 +4035,17 @@
       });
     });
 
+    // Saying nothing when nothing was found looks the same as not having
+    // looked, so it says where it looked instead.
+    if (convertedSongs().length && !state.mod.characters.length) {
+      trouble.push("<b>No character files found.</b> Characters are read from any"
+        + " <code>characters/</code> folder inside what you dropped — check you dropped the mod"
+        + " folder itself rather than one folder out of it.");
+    } else if (state.mod.characters.length && !convertedCharacters().length) {
+      trouble.push("<b>" + plural(state.mod.characters.length, "character file") + " found, none"
+        + " converted.</b> They are in a shape this does not read.");
+    }
+
     unknownStages().forEach(function (name) {
       trouble.push("<code>" + escapeHtml(name) + "</code> is not a stage the game has. Stages do"
         + " not convert yet, so either bring it over yourself or tick <b>default conversion</b> to"
@@ -4367,9 +4392,9 @@
 
     if (withoutAudio) notes.push(plural(withoutAudio, "ticked song") + " has no instrumental next to it.");
 
-    if (state.mod.characters.length) {
-      notes.push(plural(state.mod.characters.length, "character") + " in this mod come along too.");
-    }
+    notes.push(state.mod.characters.length
+      ? plural(state.mod.characters.length, "character") + " in this mod come along too."
+      : "No character files found in this mod.");
 
     $("cc-pick-note").textContent = notes.join(" ");
   }
@@ -4566,13 +4591,25 @@
   function renderTypeFor(character, image) {
     if (!image) return "sparrow";
 
-    var base = (character.root + "images/" + image).toLowerCase();
-
-    if (state.mod.byPath[base + ".xml"]) return "sparrow";
-    if (state.mod.byPath[base + ".txt"]) return "packer";
-    if (state.mod.byPath[base + "/animation.json"]) return "animateatlas";
+    if (findArt(character, image + ".xml")) return "sparrow";
+    if (findArt(character, image + ".txt")) return "packer";
+    if (findArt(character, image + "/animation.json")) return "animateatlas";
 
     return "sparrow";
+  }
+
+  /**
+   * Find a file a character names, such as `characters/BOYFRIEND.png`. It is
+   * looked for beside the character first, then anywhere in the folder that
+   * calls itself images, so it is found whether the mod keeps its characters
+   * next to its images or a level above them.
+   */
+  function findArt(character, relative) {
+    var key = relative.toLowerCase();
+
+    return state.mod.byPath[(character.root + "images/" + relative).toLowerCase()]
+      || state.mod.byImage[key]
+      || null;
   }
 
   /**
@@ -4585,16 +4622,15 @@
     if (!data) return files;
 
     var image = data.assetPath;
-    var base = (character.root + "images/" + image).toLowerCase();
 
     if (image) {
       if (data.renderType === "animateatlas") {
         // The whole folder belongs to the character.
-        var prefix = base + "/";
+        var marker = ("images/" + image + "/").toLowerCase();
         var any = false;
 
         Object.keys(state.mod.byPath).forEach(function (path) {
-          if (path.indexOf(prefix) !== 0) return;
+          if (path.indexOf(marker) < 0) return;
 
           var entry = state.mod.byPath[path];
           files.push({ from: entry, to: "images/" + image + "/" + entry.name });
@@ -4603,8 +4639,8 @@
 
         if (!any) character.warnings.push("its atlas folder is not in this mod");
       } else {
-        var sheet = state.mod.byPath[base + ".png"];
-        var frames = state.mod.byPath[base + (data.renderType === "packer" ? ".txt" : ".xml")];
+        var sheet = findArt(character, image + ".png");
+        var frames = findArt(character, image + (data.renderType === "packer" ? ".txt" : ".xml"));
 
         if (sheet) files.push({ from: sheet, to: "images/" + image + ".png" });
         else character.warnings.push("its spritesheet <code>" + escapeHtml(image)
@@ -4620,14 +4656,14 @@
     }
 
     var iconId = data.healthIcon.id;
-    var icon = state.mod.byPath[(character.root + "images/icons/icon-" + iconId).toLowerCase() + ".png"];
+    var icon = findArt(character, "icons/icon-" + iconId + ".png");
 
     if (icon) {
       files.push({ from: icon, to: "images/icons/icon-" + iconId + ".png" });
 
       // A newer style icon is a sheet with an XML beside it; the old two frame
       // strip is read as it is.
-      var iconFrames = state.mod.byPath[(character.root + "images/icons/icon-" + iconId).toLowerCase() + ".xml"];
+      var iconFrames = findArt(character, "icons/icon-" + iconId + ".xml");
       if (iconFrames) files.push({ from: iconFrames, to: "images/icons/icon-" + iconId + ".xml" });
     } else {
       character.warnings.push("its health icon <code>icon-" + escapeHtml(iconId)
