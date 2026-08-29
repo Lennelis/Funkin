@@ -1583,6 +1583,9 @@
       if (flag(section.gfSection)) report.gfSections++;
 
       var mustHit = flag(section.mustHitSection);
+
+      if (mustHit) report.mustHitSections++;
+      else report.plainSections++;
       var sectionNotes = section.sectionNotes;
       var hasNotes = false;
 
@@ -1612,6 +1615,11 @@
             data = data % (STRUMLINE_SIZE * 2);
             report.wrapped++;
           }
+
+          // Which half of the section's own numbering the note was written in,
+          // before anything is swapped.
+          if (data < STRUMLINE_SIZE) report.sourceLow++;
+          else report.sourceHigh++;
 
           if (!hasNotes) {
             hasNotes = true;
@@ -1645,6 +1653,8 @@
     notes.sort(function (a, b) { return a.t - b.t || a.d - b.d; });
 
     if (state.opts.dedupe) notes = dedupe(notes, report);
+
+    tallySides(notes, report);
 
     report.notes = notes.length;
     report.cameraEvents = cameraCuts.length;
@@ -2212,6 +2222,8 @@
 
     var pairs = [
       ["notes", report.notes],
+      ["player", report.player],
+      ["opponent", report.opponent],
       ["holds", report.holds],
       ["sections", report.sections],
       ["camera", report.cameraEvents],
@@ -2243,6 +2255,25 @@
   function chartWarnings(chart) {
     var report = chart.report;
     var warnings = [];
+    var total = report.player + report.opponent;
+
+    // A song both characters sing comes out roughly even. Everything landing
+    // on one side means the sides were read wrong, and the numbers below say
+    // where it went wrong.
+    if (total >= 20 && (report.player / total > 0.9 || report.opponent / total > 0.9)) {
+      var side = report.player > report.opponent ? "the player" : "the opponent";
+
+      warnings.push("<b>" + Math.round(Math.max(report.player, report.opponent) / total * 100)
+        + "% of the notes came out on " + side + "'s side.</b> A song both characters sing should"
+        + " land near half and half. The old chart wrote "
+        + plural(report.sourceLow, "note") + " in lanes 0-3 and "
+        + plural(report.sourceHigh, "note") + " in lanes 4-7, across "
+        + report.mustHitSections + " must-hit and " + report.plainSections + " other sections."
+        + (report.mustHitSections === 0 || report.plainSections === 0
+          ? " Every section says the same thing, so the chart never marks whose turn it is —"
+          + " that is why it all lands on one character."
+          : " If that looks wrong for this song, tick <b>swap who plays what</b>."));
+    }
 
     if (!report.notes) {
       warnings.push("this difficulty came out with no notes at all — the sections in the file are"
@@ -2376,6 +2407,17 @@
         : "<code>sectionNotes</code>, " + plural(info.rawNotes, "note"),
         plural(info.notes, "note") + " in <code>notes." + escapeHtml(chart.difficulty) + "</code>");
 
+      if (!codename) {
+        row(plural(info.mustHitSections, "<code>mustHitSection</code> section") + " and "
+          + plural(info.plainSections, "other"),
+          plural(info.sourceLow, "note") + " in lanes 0-3, " + plural(info.sourceHigh, "note")
+          + " in lanes 4-7");
+      }
+
+      row("whose notes they are",
+        "<b>" + info.player + "</b> for the player (<code>d</code> 0-3), <b>" + info.opponent
+        + "</b> for the opponent (<code>d</code> 4-7)");
+
       if (info.flipped) {
         row(plural(info.flipped, "note") + " in a <code>mustHitSection: false</code> section",
           "swapped to the other strumline");
@@ -2445,7 +2487,7 @@
       }
     });
 
-    if (song) {
+    if (song && (state.opts.defaults || song.swapSides)) {
       heading("This song");
 
       if (state.opts.defaults) {
@@ -2701,13 +2743,16 @@
       ctx.fillText(LANE_NAMES[data % STRUMLINE_SIZE], 6, y);
     }
 
+    // Name the characters on the rows, so there is no doubt about which side
+    // of the chart is whose.
+    var cast = effectiveSong(state.song);
+
     ctx.save();
     ctx.fillStyle = "#7A6F94";
     ctx.font = "10px " + cssVar("--font-ui");
     ctx.textBaseline = "bottom";
-    ctx.fillText("OPPONENT", 6, geo.top - 3);
-    ctx.textBaseline = "bottom";
-    ctx.fillText("PLAYER", 6, laneY(0, geo) - 3);
+    ctx.fillText("OPPONENT · " + (cast.opponent || "dad"), 6, geo.top - 3);
+    ctx.fillText("PLAYER · " + (cast.player || "bf"), 6, laneY(0, geo) - 3);
     ctx.restore();
   }
 
@@ -3198,6 +3243,8 @@
     notes.sort(function (a, b) { return a.t - b.t || a.d - b.d; });
     if (state.opts.dedupe) notes = dedupe(notes, report);
 
+    tallySides(notes, report);
+
     events.sort(function (a, b) { return a.t - b.t; });
     timeChanges.sort(function (a, b) { return a.t - b.t; });
 
@@ -3258,6 +3305,17 @@
     return index === 1 ? 1 : (index === 0 ? 0 : 2);
   }
 
+  /** Count which side the finished notes ended up on. */
+  function tallySides(notes, report) {
+    report.player = 0;
+    report.opponent = 0;
+
+    notes.forEach(function (note) {
+      if (note.d < STRUMLINE_SIZE) report.player++;
+      else report.opponent++;
+    });
+  }
+
   function blankReport() {
     return {
       sections: 0,
@@ -3277,7 +3335,16 @@
       extraStrumlines: 0,
       extraNotes: 0,
       noMustHit: 0,
-      gfSections: 0
+      gfSections: 0,
+
+      // How the source was laid out, and how it came out, so a chart that
+      // lands lopsided can be read rather than guessed at.
+      mustHitSections: 0,
+      plainSections: 0,
+      sourceLow: 0,
+      sourceHigh: 0,
+      player: 0,
+      opponent: 0
     };
   }
 
