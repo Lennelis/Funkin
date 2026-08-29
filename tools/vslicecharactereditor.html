@@ -320,6 +320,55 @@
   .nudge-pad .down { grid-column: 2; grid-row: 2; }
   .nudge-pad .right { grid-column: 3; grid-row: 2; }
 
+  /* --------------------------------------------------- grouped transport */
+
+  .transport-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  /* The tabs only earn their place when there is not room for all three
+     groups at once. */
+  .transport-tabs { display: none; }
+
+  @media (max-width: 900px) {
+    .transport-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 8px 10px 0;
+      background: var(--stage-alt);
+    }
+
+    .transport-tab {
+      flex: 1;
+      min-height: 38px;
+      background: rgba(239, 234, 247, .07);
+      border-color: rgba(239, 234, 247, .18);
+      color: #EFEAF7;
+    }
+
+    .transport-tab.on { background: #FF4FA3; border-color: #FF4FA3; color: #FFF; }
+
+    .transport { padding-top: 8px; }
+    .transport .divider { display: none; }
+    .transport-group { display: none; width: 100%; }
+    .transport-group.on { display: flex; }
+
+    /* The pad is laid out in fixed pixels, which a thumb-sized button breaks
+       out of; it gets rows to match. */
+    .nudge-pad {
+      grid-template-columns: repeat(3, 52px);
+      grid-template-rows: repeat(2, 40px);
+      gap: 6px;
+    }
+
+    .nudge-pad .btn { min-height: 0; height: 100%; font-size: 18px; }
+    .pad-row .btn { min-width: 46px; }
+
+    /* The tab overhead says OFFSET already; repeating it only costs room. */
+    .transport-group .transport-label { display: none; }
+
+    /* Rarely pressed, and two lines each at full size. */
+    .topbar-tools .btn { font-size: 12.5px; padding: 6px 9px; }
+  }
+
   /* ---------------------------------------------------------------- fields */
 
   .group { display: flex; flex-direction: column; gap: 8px; }
@@ -673,43 +722,61 @@
         </div>
       </div>
 
+      <!-- On a narrow screen these three groups take turns, chosen by the tabs
+           below; on a wide one the tabs are hidden and all three sit in a row,
+           exactly as they always have. -->
+      <nav class="transport-tabs" role="tablist" aria-label="Which controls to show">
+        <button class="btn transport-tab on" type="button" role="tab" data-group="play"
+          aria-selected="true">Play</button>
+        <button class="btn transport-tab" type="button" role="tab" data-group="offset"
+          aria-selected="false">Offset</button>
+        <button class="btn transport-tab" type="button" role="tab" data-group="view"
+          aria-selected="false">View</button>
+      </nav>
+
       <div class="transport">
-        <button class="btn on" id="btn-play" type="button">Pause</button>
-        <button class="btn" id="btn-prev-frame" type="button">◀</button>
-        <button class="btn" id="btn-next-frame" type="button">▶</button>
+        <div class="transport-group" data-group="play">
+          <button class="btn on" id="btn-play" type="button">Pause</button>
+          <button class="btn" id="btn-prev-frame" type="button">◀</button>
+          <button class="btn" id="btn-next-frame" type="button">▶</button>
 
-        <div class="divider"></div>
+          <div class="divider"></div>
 
-        <span class="transport-label">SING</span>
-        <div class="pad-row" id="sing-row">
-          <button class="btn" type="button" data-sing="singLEFT" aria-label="Play sing left">←</button>
-          <button class="btn" type="button" data-sing="singDOWN" aria-label="Play sing down">↓</button>
-          <button class="btn" type="button" data-sing="singUP" aria-label="Play sing up">↑</button>
-          <button class="btn" type="button" data-sing="singRIGHT" aria-label="Play sing right">→</button>
+          <span class="transport-label">SING</span>
+          <div class="pad-row" id="sing-row">
+            <button class="btn" type="button" data-sing="singLEFT" aria-label="Play sing left">←</button>
+            <button class="btn" type="button" data-sing="singDOWN" aria-label="Play sing down">↓</button>
+            <button class="btn" type="button" data-sing="singUP" aria-label="Play sing up">↑</button>
+            <button class="btn" type="button" data-sing="singRIGHT" aria-label="Play sing right">→</button>
+          </div>
         </div>
 
         <div class="divider"></div>
 
-        <span class="transport-label">OFFSET</span>
-        <div class="nudge-pad">
-          <button class="btn up" type="button" data-nudge="up" aria-label="Move up">↑</button>
-          <button class="btn left" type="button" data-nudge="left" aria-label="Move left">←</button>
-          <button class="btn down" type="button" data-nudge="down" aria-label="Move down">↓</button>
-          <button class="btn right" type="button" data-nudge="right" aria-label="Move right">→</button>
+        <div class="transport-group" data-group="offset">
+          <span class="transport-label">OFFSET</span>
+          <div class="nudge-pad">
+            <button class="btn up" type="button" data-nudge="up" aria-label="Move up">↑</button>
+            <button class="btn left" type="button" data-nudge="left" aria-label="Move left">←</button>
+            <button class="btn down" type="button" data-nudge="down" aria-label="Move down">↓</button>
+            <button class="btn right" type="button" data-nudge="right" aria-label="Move right">→</button>
+          </div>
+          <button class="btn" id="btn-step" type="button">Step 1</button>
+          <button class="btn" id="btn-undo" type="button" disabled>Undo</button>
+          <button class="btn" id="btn-redo" type="button" disabled>Redo</button>
         </div>
-        <button class="btn" id="btn-step" type="button">Step 1</button>
-        <button class="btn" id="btn-undo" type="button" disabled>Undo</button>
-        <button class="btn" id="btn-redo" type="button" disabled>Redo</button>
 
         <div class="divider"></div>
 
-        <span class="transport-label">VIEW</span>
-        <button class="btn on" id="btn-bg" type="button">Menu BG</button>
-        <button class="btn" id="btn-ghost" type="button">Ghost off</button>
-        <button class="btn on" id="btn-cam" type="button">Camera on</button>
-        <button class="btn" id="btn-zoom-out" type="button">−</button>
-        <button class="btn" id="btn-zoom-in" type="button">+</button>
-        <button class="btn" id="btn-zoom-reset" type="button">Fit</button>
+        <div class="transport-group" data-group="view">
+          <span class="transport-label">VIEW</span>
+          <button class="btn on" id="btn-bg" type="button">Menu BG</button>
+          <button class="btn" id="btn-ghost" type="button">Ghost off</button>
+          <button class="btn on" id="btn-cam" type="button">Camera on</button>
+          <button class="btn" id="btn-zoom-out" type="button">−</button>
+          <button class="btn" id="btn-zoom-in" type="button">+</button>
+          <button class="btn" id="btn-zoom-reset" type="button">Fit</button>
+        </div>
       </div>
     </section>
 
@@ -3163,6 +3230,36 @@
     this.classList.toggle("on", state.showCamera);
   });
 
+  // Which group of controls is showing. Only visible on a narrow screen; on a
+  // wide one every group is on show and the tabs are hidden.
+  [].slice.call(document.querySelectorAll(".transport-tab")).forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      var wanted = tab.dataset.group;
+
+      [].slice.call(document.querySelectorAll(".transport-tab")).forEach(function (other) {
+        var picked = other === tab;
+        other.classList.toggle("on", picked);
+        other.setAttribute("aria-selected", picked ? "true" : "false");
+      });
+
+      [].slice.call(document.querySelectorAll(".transport-group")).forEach(function (group) {
+        group.classList.toggle("on", group.dataset.group === wanted);
+      });
+
+      try { localStorage.setItem("vslice-char-transport", wanted); } catch (err) { /* ignore */ }
+    });
+  });
+
+  (function () {
+    var wanted = null;
+    try { wanted = localStorage.getItem("vslice-char-transport"); } catch (err) { /* ignore */ }
+
+    var tab = document.querySelector('.transport-tab[data-group="' + (wanted || "play") + '"]')
+      || document.querySelector(".transport-tab");
+
+    if (tab) tab.click();
+  })();
+
   $("btn-zoom-in").addEventListener("click", function () { state.zoom = Math.min(6, state.zoom * 1.2); });
   $("btn-zoom-out").addEventListener("click", function () { state.zoom = Math.max(0.1, state.zoom / 1.2); });
   $("btn-zoom-reset").addEventListener("click", function () {
@@ -3171,17 +3268,72 @@
     state.panY = 0;
   });
 
-  // Drag on the canvas to set the offset of the selected animation.
+  /**
+   * One finger on the canvas drags the selected animation's offset. Two move
+   * the view instead — pinch to zoom, drag to pan — which is the only way to
+   * get around a character too big for the stage.
+   *
+   * A second finger landing cancels whatever the first was doing and puts the
+   * offset back, so starting a pinch never leaves a stray nudge behind.
+   */
   var dragging = false;
   var dragStart = null;
+  var touches = {};
+  var pinch = null;
+
+  function touchList() {
+    return Object.keys(touches).map(function (id) { return touches[id]; });
+  }
+
+  function cancelOffsetDrag() {
+    if (!dragging) return;
+
+    var anim = currentAnim();
+
+    if (anim && dragStart) {
+      anim.offsets[0] = dragStart.ox;
+      anim.offsets[1] = dragStart.oy;
+      syncFields();
+      syncReadouts();
+    }
+
+    dragging = false;
+    dragStart = null;
+    canvas.classList.remove("dragging");
+  }
+
+  function startPinch() {
+    var points = touchList();
+    if (points.length < 2) return;
+
+    pinch = {
+      distance: Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) || 1,
+      midX: (points[0].x + points[1].x) / 2,
+      midY: (points[0].y + points[1].y) / 2,
+      zoom: state.zoom,
+      panX: state.panX,
+      panY: state.panY
+    };
+  }
 
   canvas.addEventListener("pointerdown", function (event) {
+    touches[event.pointerId] = { x: event.clientX, y: event.clientY };
+
+    // Capture can be refused if the pointer has already gone; losing it only
+    // means a drag ends at the edge of the canvas rather than following.
+    try { canvas.setPointerCapture(event.pointerId); } catch (err) { /* not fatal */ }
+
+    if (touchList().length >= 2) {
+      cancelOffsetDrag();
+      startPinch();
+      return;
+    }
+
     var anim = currentAnim();
     if (!anim) return;
 
     dragging = true;
     canvas.classList.add("dragging");
-    canvas.setPointerCapture(event.pointerId);
     dragStart = {
       x: event.clientX,
       y: event.clientY,
@@ -3191,6 +3343,30 @@
   });
 
   canvas.addEventListener("pointermove", function (event) {
+    if (touches[event.pointerId]) {
+      touches[event.pointerId].x = event.clientX;
+      touches[event.pointerId].y = event.clientY;
+    }
+
+    var points = touchList();
+
+    if (points.length >= 2) {
+      if (!pinch) startPinch();
+      if (!pinch) return;
+
+      var spread = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) || 1;
+      var midX = (points[0].x + points[1].x) / 2;
+      var midY = (points[0].y + points[1].y) / 2;
+
+      state.zoom = Math.max(0.1, Math.min(6, pinch.zoom * (spread / pinch.distance)));
+      state.panX = pinch.panX + (midX - pinch.midX);
+      state.panY = pinch.panY + (midY - pinch.midY);
+
+      state.autoZoom = false;
+      syncReadouts();
+      return;
+    }
+
     if (!dragging || !dragStart) return;
 
     var anim = currentAnim();
@@ -3205,7 +3381,11 @@
   });
 
   ["pointerup", "pointercancel"].forEach(function (name) {
-    canvas.addEventListener(name, function () {
+    canvas.addEventListener(name, function (event) {
+      delete touches[event.pointerId];
+
+      if (touchList().length < 2) pinch = null;
+
       if (!dragging) return;
 
       dragging = false;
@@ -3217,6 +3397,16 @@
       pushHistory();
     });
   });
+
+  // A trackpad pinch arrives as a wheel with ctrl held; a plain wheel zooms too,
+  // since there is nothing else for it to do here.
+  canvas.addEventListener("wheel", function (event) {
+    event.preventDefault();
+
+    state.zoom = Math.max(0.1, Math.min(6, state.zoom * Math.pow(0.999, event.deltaY)));
+    state.autoZoom = false;
+    syncReadouts();
+  }, { passive: false });
 
   // Keyboard: arrows nudge, Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z or Ctrl+Y travel history.
   document.addEventListener("keydown", function (event) {

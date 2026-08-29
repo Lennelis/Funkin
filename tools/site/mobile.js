@@ -168,6 +168,24 @@
 
   if (!narrow()) document.body.removeAttribute("data-pane");
 
+  /**
+   * How tall the control strip is, so a toast can sit above it. Tools differ,
+   * and the character editor's grows a row when you switch control groups.
+   */
+  function measureTransport() {
+    var strip = document.querySelector(".transport");
+    var tabs = document.querySelector(".transport-tabs");
+
+    var height = (strip ? strip.getBoundingClientRect().height : 0)
+      + (tabs && tabs.offsetParent ? tabs.getBoundingClientRect().height : 0);
+
+    document.documentElement.style.setProperty("--transport-h", Math.round(height) + "px");
+  }
+
+  measureTransport();
+  window.addEventListener("resize", measureTransport);
+  document.addEventListener("click", function () { setTimeout(measureTransport, 60); });
+
   // ----------------------------------------------------------- offline use
 
   if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {

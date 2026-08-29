@@ -174,9 +174,10 @@
   .report-arrow { display: none; }
   .frame-grid { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
   /* Clear of the transport strip, which is where the buttons you just pressed
-     are. */
+     are. Its height is measured rather than guessed, since it differs from
+     tool to tool. */
   .toast {
-    bottom: max(78px, calc(env(safe-area-inset-bottom) + 68px));
+    bottom: calc(var(--transport-h, 56px) + max(14px, env(safe-area-inset-bottom)));
     max-width: calc(100vw - 32px);
     text-align: center;
   }
