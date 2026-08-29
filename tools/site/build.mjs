@@ -13,7 +13,11 @@ import { fileURLToPath } from "url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tools = path.join(here, "..");
-const out = path.resolve(here, process.argv[2] || "dist");
+
+// `--bake` writes the layer back into the tools themselves, so a file someone
+// downloads behaves the same as the site does.
+const bake = process.argv.includes("--bake");
+const out = path.resolve(here, process.argv.filter((arg) => arg !== "--bake")[2] || "dist");
 
 const TOOLS = [
   "vslicechartconverter.html",
@@ -38,20 +42,37 @@ const APP_HEAD = `
 <link rel="icon" href="icon-192.png">
 `;
 
-function appify(html) {
+// The touch layer is fenced so it can be replaced rather than stacked up. A
+// tool carries it in the file itself — people download these and open them
+// straight off their phone, where nothing is around to inject anything.
+const START = "<!-- touch-layer: built from tools/site, do not edit here -->";
+const END = "<!-- end touch-layer -->";
+const LAYER = new RegExp(START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\S]*?" + END, "i");
+
+/**
+ * Fold the shared layer into a tool.
+ * @param {boolean} pwa also add the tags that make it installable, which only
+ *   mean anything when the file is served rather than opened off a disk.
+ */
+function appify(html, pwa) {
   // Safe areas need viewport-fit, which the tools do not ask for on their own.
   html = html.replace(
     /<meta name="viewport" content="[^"]*">/i,
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
   );
 
-  html = html.replace(/<\/head>/i, APP_HEAD + "</head>");
+  if (pwa && !html.includes('rel="manifest"')) {
+    html = html.replace(/<\/head>/i, APP_HEAD + "</head>");
+  }
 
-  const layer = `\n<style>\n${mobileCss}\n</style>\n<script>\n${mobileJs}\n</script>\n`;
+  const layer = `${START}\n<style>\n${mobileCss}\n</style>\n<script>\n${mobileJs}\n</script>\n${END}`;
+
+  // Replace whatever is already there, so building never doubles it up.
+  if (LAYER.test(html)) return html.replace(LAYER, layer);
 
   return html.includes("</body>")
-    ? html.replace(/<\/body>/i, layer + "</body>")
-    : html + layer;
+    ? html.replace(/<\/body>/i, "\n" + layer + "\n</body>")
+    : html + "\n" + layer + "\n";
 }
 
 /** The two embedded faces every tool carries, lifted for the hub to reuse. */
@@ -76,7 +97,12 @@ for (const name of TOOLS) {
   const html = fs.readFileSync(from, "utf8");
   if (!fonts) fonts = fontsFrom(html);
 
-  fs.writeFileSync(path.join(out, name), appify(html));
+  if (bake) {
+    fs.writeFileSync(from, appify(html, false));
+    console.log(`  ~ tools/${name}`);
+  }
+
+  fs.writeFileSync(path.join(out, name), appify(html, true));
   console.log(`  + ${name}`);
 }
 

@@ -3,16 +3,26 @@
 The five modding tools, published as one site so they can be opened on any
 device and added to a phone's home screen.
 
-Each tool in `tools/` stays a single self-contained file that works on its own
-from your disk. The build only folds a shared touch layer and the app plumbing
-into a *copy* of each one — nothing here is needed for a tool to run.
+Each tool in `tools/` is a single self-contained file that works on its own from
+your disk — including the touch layer, which is baked into it. People download
+these and open them straight off a phone, where nothing is around to inject
+anything, so the file has to carry everything it needs.
+
+The build adds only the app plumbing on top: the manifest link and the icons,
+which mean nothing until the file is served.
 
 ## Building
 
 ```sh
 cd tools/site
-node build.mjs        # writes dist/
+node build.mjs          # writes dist/
+node build.mjs --bake   # also writes the layer back into tools/*.html
 ```
+
+**After changing `mobile.css` or `mobile.js`, run `--bake`.** Without it the
+site gets your changes and the files people download do not, which looks
+exactly like the feature never existed. The layer is fenced by comment markers
+and replaced rather than appended, so baking repeatedly is safe.
 
 No dependencies, no install step. To look at it as a phone would:
 
@@ -37,7 +47,7 @@ Build and deployment → Source → GitHub Actions**.
 | `mobile.css` | The touch layer. Only applies under 900px; the desktop layout is untouched. |
 | `mobile.js` | Builds the pane switcher every tool shares, remembers which panel you were on per tool, and registers the worker. |
 | `sw.js` | Caches the whole set on first visit. `__VERSION__` and `__FILES__` are filled in by the build, so a new build replaces the old cache. |
-| `build.mjs` | Puts it together. |
+| `build.mjs` | Puts it together, and with `--bake` folds the layer back into the tools themselves. |
 | `icon.mjs` | Redraws the icons. Only needed if you want to change them; the PNGs are committed. |
 
 ## Adding a tool
