@@ -173,11 +173,14 @@
    * and the character editor's grows a row when you switch control groups.
    */
   function measureTransport() {
-    var strip = document.querySelector(".transport");
-    var tabs = document.querySelector(".transport-tabs");
+    // Everything a tool parks under its stage, whatever it happens to be.
+    var below = [".transport-tabs", ".transport", ".anim-strip"];
+    var height = 0;
 
-    var height = (strip ? strip.getBoundingClientRect().height : 0)
-      + (tabs && tabs.offsetParent ? tabs.getBoundingClientRect().height : 0);
+    below.forEach(function (selector) {
+      var element = document.querySelector(selector);
+      if (element && element.offsetParent) height += element.getBoundingClientRect().height;
+    });
 
     document.documentElement.style.setProperty("--transport-h", Math.round(height) + "px");
   }

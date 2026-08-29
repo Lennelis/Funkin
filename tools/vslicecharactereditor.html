@@ -248,6 +248,129 @@
 
   .anim-list { display: flex; flex-direction: column; gap: 2px; }
 
+  /* ------------------------------------------------- animations, under the
+     preview. A row of chips that scrolls sideways, so however many a
+     character has, the settings for the one you pick stay put. */
+
+  .anim-strip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: var(--stage-alt);
+    border-top: 1px solid rgba(239, 234, 247, .1);
+  }
+
+  .anim-strip .anim-list {
+    flex: 1;
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding-bottom: 2px;
+  }
+
+  .anim-strip .anim-item {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    /* The list version fills its rail; a chip is only as wide as its name. */
+    width: auto;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border-color: rgba(239, 234, 247, .18);
+    background: rgba(239, 234, 247, .07);
+    color: #EFEAF7;
+  }
+
+  .anim-strip .anim-item:hover { background: rgba(239, 234, 247, .14); }
+
+  .anim-strip .anim-item[aria-selected="true"] {
+    background: #FF4FA3;
+    border-color: #FF4FA3;
+    color: #FFF;
+  }
+
+  .anim-strip .anim-item[aria-selected="true"] .anim-meta { color: rgba(255, 255, 255, .8); }
+  .anim-strip .anim-meta { color: #A79CC0; }
+  .anim-strip-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+  .anim-strip-tools .count { color: #A79CC0; }
+  .anim-strip-tools .count b { color: #EFEAF7; font-weight: 400; }
+
+  .anim-strip-tools .btn {
+    background: rgba(239, 234, 247, .07);
+    border-color: rgba(239, 234, 247, .18);
+    color: #EFEAF7;
+    min-width: 38px;
+    font-size: 17px;
+    line-height: 1;
+  }
+
+  .anim-strip-tools .btn:hover { border-color: #FF4FA3; }
+
+  /* ------------------------------------------------------- import dialog */
+
+  .sheet-import { width: min(680px, 100%); }
+
+  /* Both lists live in the same dialog and take turns. The hidden attribute
+     alone cannot put one away, since the display below outranks it. */
+  .sheet-list[hidden], .sheet-tools[hidden] { display: none !important; }
+
+  .import-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 12px 20px 0;
+  }
+
+  .import-tabs .btn { flex: 1; }
+  .import-tabs .btn.on { background: var(--accent); border-color: var(--accent); color: #FFF; }
+
+  .slot {
+    display: grid;
+    grid-template-columns: 108px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+  }
+
+  .slot:nth-child(odd) { background: var(--panel-2); }
+
+  .slot-name {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .slot-pick { display: grid; grid-template-columns: auto 1fr auto; gap: 4px; align-items: center; }
+
+  .slot-pick select {
+    width: 100%;
+    min-width: 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    font-size: 13.5px;
+  }
+
+  .slot-pick .btn { padding: 6px 10px; line-height: 1; }
+  .slot-note { font-size: 12.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .slot-note.miss { color: var(--warn); }
+
+  @media (max-width: 640px) {
+    .slot { grid-template-columns: 1fr; gap: 4px; }
+    .slot-note { justify-self: start; }
+  }
+
+  .anim-strip .empty-strip {
+    color: #7A6F94;
+    font-size: 13px;
+    padding: 6px 2px;
+  }
+
   .anim-item {
     display: grid;
     grid-template-columns: 1fr auto auto;
@@ -698,17 +821,6 @@
         </div>
       </div>
 
-      <div class="panel-head">
-        <h2 class="eyebrow">ANIMATIONS</h2>
-        <span class="count" id="anim-count">0</span>
-      </div>
-      <div class="panel-body">
-        <div class="anim-list" id="anim-list" role="listbox" aria-label="Animations"></div>
-        <div class="btn-row">
-          <button class="btn" id="btn-add-anim" type="button">Add animation</button>
-          <button class="btn" id="btn-del-anim" type="button">Delete</button>
-        </div>
-      </div>
     </section>
 
     <!-- ----------------------------------------------------------- stage -->
@@ -776,6 +888,19 @@
           <button class="btn" id="btn-zoom-out" type="button">−</button>
           <button class="btn" id="btn-zoom-in" type="button">+</button>
           <button class="btn" id="btn-zoom-reset" type="button">Fit</button>
+        </div>
+      </div>
+
+      <!-- The animations sit under the preview rather than off in the rail:
+           picking the next one to work on is the thing you do between every
+           other adjustment, and it should not mean scrolling away from the
+           character or its settings. -->
+      <div class="anim-strip">
+        <div class="anim-list" id="anim-list" role="listbox" aria-label="Animations"></div>
+        <div class="anim-strip-tools">
+          <span class="count"><b id="anim-count">0</b></span>
+          <button class="btn" id="btn-add-anim" type="button" aria-label="Add animation">+</button>
+          <button class="btn" id="btn-del-anim" type="button" aria-label="Delete animation">−</button>
         </div>
       </div>
     </section>
@@ -992,20 +1117,30 @@
 </div>
 
 <div class="overlay" id="import-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="import-title">
-  <div class="sheet">
+  <div class="sheet sheet-import">
     <div class="sheet-head">
       <h2 id="import-title">Animations found</h2>
       <p id="import-sub">Pick which ones to bring in. Each keeps its label from the atlas as its
         name — rename them to what the game asks for once they are in.</p>
     </div>
 
-    <div class="sheet-tools">
+    <nav class="import-tabs" role="tablist" aria-label="How to bring the animations in">
+      <button class="btn on" id="tab-atlas" type="button" role="tab" data-template="atlas"
+        aria-selected="true">Everything found</button>
+      <button class="btn" id="tab-bf" type="button" role="tab" data-template="bf"
+        aria-selected="false">Boyfriend / Dad</button>
+      <button class="btn" id="tab-gf" type="button" role="tab" data-template="gf"
+        aria-selected="false">Girlfriend</button>
+    </nav>
+
+    <div class="sheet-tools" id="pick-tools">
       <button class="btn" id="pick-all" type="button">Select all</button>
       <button class="btn" id="pick-none" type="button">Select none</button>
       <span class="count" id="pick-count">0 selected</span>
     </div>
 
     <div class="sheet-list" id="pick-list"></div>
+    <div class="sheet-list" id="slot-list" hidden></div>
 
     <div class="sheet-foot">
       <button class="btn" id="pick-skip" type="button">Skip — start from scratch</button>
@@ -2139,6 +2274,226 @@
 
   var picks = [];
 
+  /**
+   * The animation names the game asks a character for. A player or an opponent
+   * needs the same five; a girlfriend only sways.
+   */
+  var TEMPLATES = {
+    bf: { label: "Boyfriend / Dad", slots: ["idle", "singLEFT", "singDOWN", "singUP", "singRIGHT"] },
+    gf: { label: "Girlfriend", slots: ["danceLeft", "danceRight"] }
+  };
+
+  var importMode = "atlas";
+  var slots = [];
+
+  function plainly(text) { return String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+
+  /**
+   * The prefix most likely meant for an animation slot. Sheets label their
+   * frames however the artist felt like — "BF NOTE LEFT", "dad sing left" —
+   * so this scores each label on how much of the slot's name it accounts for
+   * rather than looking for an exact match.
+   */
+  // Sheets rarely spell an animation the way the game asks for it: a sing is
+  // almost always labelled NOTE, and a dance turns up as "Dancing Beat".
+  var STEM_WORDS = {
+    sing: ["sing", "note"],
+    dance: ["danc", "idle", "bop", "sway"],
+    idle: ["idle", "danc", "bop", "sway"]
+  };
+
+  function stemMatches(stem, candidate) {
+    var words = STEM_WORDS[stem] || [stem];
+
+    for (var i = 0; i < words.length; i++) {
+      if (candidate.indexOf(words[i]) >= 0) return true;
+    }
+
+    return false;
+  }
+
+  function guessPrefix(slot, available) {
+    var wanted = plainly(slot);
+    var direction = wanted.match(/(left|down|up|right)$/);
+    var stem = direction ? wanted.slice(0, wanted.length - direction[1].length) : "";
+
+    var best = "";
+    var bestScore = 0;
+
+    available.forEach(function (item) {
+      var candidate = plainly(item.prefix);
+      var score = 0;
+
+      if (candidate === wanted) score = 5;
+      else if (candidate.indexOf(wanted) >= 0) score = 4;
+      else if (direction && candidate.indexOf(direction[1]) >= 0) {
+        score = stem && stemMatches(stem, candidate) ? 3 : 1;
+      } else if (wanted === "idle" && stemMatches("idle", candidate)) score = 3;
+
+      // A miss, an alt or a hold is a different animation that happens to be
+      // named after this one.
+      if (score > 0 && /miss|alt|hold|hurt|dodge/.test(candidate) && !/miss|alt|hold|hurt|dodge/.test(wanted)) {
+        score -= 2;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = item.prefix;
+      }
+    });
+
+    return bestScore > 0 ? best : "";
+  }
+
+  function setImportMode(mode) {
+    importMode = mode;
+
+    [].slice.call(document.querySelectorAll(".import-tabs .btn")).forEach(function (tab) {
+      var picked = tab.dataset.template === mode;
+      tab.classList.toggle("on", picked);
+      tab.setAttribute("aria-selected", picked ? "true" : "false");
+    });
+
+    var template = TEMPLATES[mode];
+
+    if (template) {
+      // Start each slot on the closest thing in the atlas; every one can be
+      // changed, and a slot with nothing suitable is left blank.
+      slots = template.slots.map(function (name) {
+        return { name: name, prefix: guessPrefix(name, picks) };
+      });
+
+      $("import-sub").textContent = "The animations a " + template.label.toLowerCase()
+        + " needs. Each one is set to the closest label in the atlas — change any that guessed"
+        + " wrong, and leave a slot blank to skip it.";
+
+      renderSlots();
+    } else {
+      $("import-sub").textContent = picks.length + " label" + (picks.length === 1 ? "" : "s")
+        + " across " + state.frameNames.length + " frames. Each comes in under its own label —"
+        + " rename them to what the game asks for once they are in.";
+    }
+
+    $("pick-tools").hidden = !!template;
+    $("pick-list").hidden = !!template;
+    $("slot-list").hidden = !template;
+
+    syncImportButton();
+  }
+
+  function renderSlots() {
+    var list = $("slot-list");
+    list.innerHTML = "";
+
+    slots.forEach(function (slot, index) {
+      var row = document.createElement("div");
+      row.className = "slot";
+
+      var name = document.createElement("span");
+      name.className = "slot-name";
+      name.textContent = slot.name;
+
+      var pick = document.createElement("div");
+      pick.className = "slot-pick";
+
+      var back = document.createElement("button");
+      back.type = "button";
+      back.className = "btn";
+      back.textContent = "‹";
+      back.setAttribute("aria-label", "Previous label for " + slot.name);
+
+      var select = document.createElement("select");
+      select.setAttribute("aria-label", "Label for " + slot.name);
+
+      var blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = "— skip —";
+      select.appendChild(blank);
+
+      picks.forEach(function (item) {
+        var option = document.createElement("option");
+        option.value = item.prefix;
+        option.textContent = item.prefix + "  (" + item.played + "f)";
+        if (item.prefix === slot.prefix) option.selected = true;
+        select.appendChild(option);
+      });
+
+      var forward = document.createElement("button");
+      forward.type = "button";
+      forward.className = "btn";
+      forward.textContent = "›";
+      forward.setAttribute("aria-label", "Next label for " + slot.name);
+
+      var note = document.createElement("span");
+      note.className = "slot-note";
+
+      function refresh() {
+        var found = picks.filter(function (item) { return item.prefix === slot.prefix; })[0];
+
+        if (!slot.prefix) {
+          note.textContent = "skipped";
+        } else if (found.swallows.length) {
+          // Flixel matches on startsWith, so a shorter label plays the longer
+          // one's frames too. Better said here than found in game.
+          note.textContent = found.played + " frames, incl. " + found.swallows.join(", ");
+        } else {
+          note.textContent = found.played + " frames";
+        }
+
+        note.classList.toggle("miss", !slot.prefix || (found && found.swallows.length > 0));
+        syncImportButton();
+      }
+
+      select.addEventListener("change", function () {
+        slot.prefix = select.value;
+        refresh();
+      });
+
+      function step(by) {
+        var at = select.selectedIndex + by;
+        if (at < 0) at = select.options.length - 1;
+        if (at >= select.options.length) at = 0;
+
+        select.selectedIndex = at;
+        slot.prefix = select.value;
+        refresh();
+      }
+
+      back.addEventListener("click", function () { step(-1); });
+      forward.addEventListener("click", function () { step(1); });
+
+      pick.appendChild(back);
+      pick.appendChild(select);
+      pick.appendChild(forward);
+
+      row.appendChild(name);
+      row.appendChild(pick);
+      row.appendChild(note);
+      list.appendChild(row);
+
+      refresh();
+    });
+  }
+
+  function syncImportButton() {
+    var button = $("pick-import");
+
+    if (TEMPLATES[importMode]) {
+      var filled = slots.filter(function (slot) { return slot.prefix; }).length;
+
+      button.disabled = filled === 0;
+      button.textContent = filled ? "Import " + filled + " animation" + (filled === 1 ? "" : "s")
+        : "Nothing to import";
+
+      return;
+    }
+
+    var selected = picks.filter(function (pick) { return pick.checked; }).length;
+
+    button.disabled = selected === 0;
+    button.textContent = "Import selected";
+  }
+
   function openImportDialog() {
     if (!state.frameNames.length) {
       toast("Load an atlas .xml first");
@@ -2162,6 +2517,8 @@
       (clashes ? " " + clashes + " of them also picks up another label's frames." : "");
 
     renderPicks();
+    setImportMode("atlas");
+
     $("import-overlay").hidden = false;
     $("pick-import").focus();
   }
@@ -2223,8 +2580,9 @@
 
   function syncPickCount() {
     var selected = picks.filter(function (pick) { return pick.checked; }).length;
+
     $("pick-count").textContent = selected + " selected";
-    $("pick-import").disabled = selected === 0;
+    syncImportButton();
   }
 
   function setAllPicks(fn) {
@@ -2233,18 +2591,29 @@
   }
 
   function importPicks() {
-    var chosen = picks.filter(function (pick) { return pick.checked; });
+    // A template brings in animations under the names the game asks for; the
+    // atlas tab brings them in under their own labels.
+    var chosen = TEMPLATES[importMode]
+      ? slots.filter(function (slot) { return slot.prefix; })
+      : picks.filter(function (pick) { return pick.checked; });
+
     if (!chosen.length) return;
 
     chosen.forEach(function (pick) {
-      state.data.animations.push({
+      // Re-importing a name that is already there replaces it rather than
+      // leaving two animations the game cannot tell apart.
+      var existing = findAnimIndex(pick.name);
+      var anim = {
         name: pick.name,
         prefix: pick.prefix,
         frameRate: 24,
-        looped: false,
+        looped: /idle|dance/i.test(pick.name),
         flipX: false,
         offsets: [0, 0]
-      });
+      };
+
+      if (existing >= 0) state.data.animations[existing] = anim;
+      else state.data.animations.push(anim);
     });
 
     // The game needs one of these by name. Use one if the atlas happens to
@@ -2284,7 +2653,9 @@
   function setPlaying(playing) {
     state.playing = playing;
     var button = $("btn-play");
-    button.textContent = playing ? "Pause" : (state.finished ? "Replay" : "Play");
+    // One button. It already starts a finished animation over, so calling that
+    // "Replay" only made it look like a different control.
+    button.textContent = playing ? "Pause" : "Play";
     button.classList.toggle("on", playing);
   }
 
@@ -2595,7 +2966,22 @@
       item.addEventListener("click", function () { selectAnim(index, true); });
 
       list.appendChild(item);
+
+      // The strip scrolls sideways, so the one being worked on is brought
+      // into view rather than left off the end.
+      if (index === state.animIndex && item.scrollIntoView) {
+        item.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
     });
+
+    if (!state.data.animations.length) {
+      var empty = document.createElement("p");
+      empty.className = "empty-strip";
+      empty.textContent = state.frameNames.length
+        ? "No animations yet — use Import from atlas."
+        : "No animations yet.";
+      list.appendChild(empty);
+    }
 
     $("anim-count").textContent = state.data.animations.length;
   }
@@ -3086,6 +3472,10 @@
 
   $("pick-all").addEventListener("click", function () { setAllPicks(function () { return true; }); });
   $("pick-none").addEventListener("click", function () { setAllPicks(function () { return false; }); });
+
+  [].slice.call(document.querySelectorAll(".import-tabs .btn")).forEach(function (tab) {
+    tab.addEventListener("click", function () { setImportMode(tab.dataset.template); });
+  });
 
   $("pick-import").addEventListener("click", importPicks);
 
