@@ -57,6 +57,17 @@ card to `hub.html`. It picks up the touch layer and the offline caching on its
 own, as long as it is built from the same shell: a `.topbar`, a `.workspace`
 holding `.rail`, `.stage-col` and `.inspector`, and a `.drawer`.
 
+## Hub art
+
+`hub/` holds the menu art. The buttons are one strip per tool, three states
+side by side in the order the sheet came in - locked, idle, pressed - switched
+with `background-position-x`. The two wire layers are mirror-doubled
+vertically so they can repeat down a page of any length without a seam, and
+`hub.html` offsets them by a fraction of the scroll to get the parallax.
+
+Everything in the menu is sized off `--u`, one unit of the 1080-wide frame the
+art was drawn on, so the whole thing scales as a single picture.
+
 ## Brand
 
 `brand/made-with-claude.svg` follows the reader's light/dark setting and is what the

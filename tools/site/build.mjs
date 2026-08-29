@@ -24,7 +24,8 @@ const TOOLS = [
   "vslicecharactereditor.html",
   "vslicesheetpacker.html",
   "vsliceleveleditor.html",
-  "vslicecutsceneeditor.html"
+  "vslicecutsceneeditor.html",
+  "vslicestageeditor.html"
 ];
 
 const mobileCss = fs.readFileSync(path.join(here, "mobile.css"), "utf8");
@@ -116,6 +117,7 @@ for (const asset of [
   "icon-512.png",
   "icon-maskable-512.png",
   "brand/made-with-claude.svg",
+  ...fs.readdirSync(path.join(here, "hub")).map((name) => "hub/" + name),
 ]) {
   const from = path.join(here, asset);
 
