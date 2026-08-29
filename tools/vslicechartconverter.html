@@ -742,6 +742,7 @@
       </div>
 
       <div class="transport">
+        <button class="btn" id="cc-top" type="button">Top</button>
         <button class="btn" id="cc-fit" type="button">Fit</button>
         <div class="pad-row">
           <button class="btn" id="cc-zoom-out" type="button" aria-label="Zoom out">&minus;</button>
@@ -1218,7 +1219,9 @@
   ];
   var LANE_COLOURS = ["#C24B99", "#00FFFF", "#12FA05", "#F9393F"];
 
-  var BASE_ZOOM = 0.05; // pixels per millisecond at 100%
+  // Pixels per millisecond at 100%: a second of song is about 130px tall,
+  // close to what the game's editor shows.
+  var BASE_ZOOM = 0.13;
 
   var state = {
     // "chart" converts one file at a time; "mod" takes a whole folder.
@@ -1264,7 +1267,8 @@
     outputs: [],
     outputIndex: 0,
 
-    view: { zoom: BASE_ZOOM, panX: -300, grid: true, events: true, w: 0, h: 0 }
+    // `pan` is the time at the top edge of the stage; the timeline scrolls down.
+    view: { zoom: BASE_ZOOM, pan: -300, grid: true, events: true, w: 0, h: 0 }
   };
 
   // ------------------------------------------------------------------ helpers
@@ -2641,8 +2645,14 @@
   var canvas = null;
   var ctx = null;
 
-  var GUTTER = 78;
-  var TOP = 48; // clear of the readout pills floating over the canvas
+  // Time runs down the screen, the way it does in the game's own chart editor:
+  // eight lanes across, the opponent on the left and the player on the right,
+  // and the song arriving from the top.
+  var HEADER = 34;   // the strip holding the lane arrows
+  var MARGIN = 46;   // the left margin, for measure numbers and timestamps
+  var EVENTS = 92;   // the column events are listed in, down the right
+
+  var ARROWS = ["←", "↓", "↑", "→"];
 
   function resizeCanvas() {
     if (!canvas) return;
@@ -2654,43 +2664,44 @@
     state.view.w = box.width;
     state.view.h = box.height;
 
-    // On a narrow screen the preview is behind a tab, so it has no size until
-    // you look at it. Anything fitted while it was away was fitted to nothing,
-    // and has to be fitted again now there is somewhere to draw.
-    if (wasEmpty && box.width > 0 && currentChart()) {
-      setTimeout(fitView, 0);
-    }
-
     canvas.width = Math.max(1, Math.round(box.width * ratio));
     canvas.height = Math.max(1, Math.round(box.height * ratio));
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+    // On a narrow screen the preview is behind a tab, so it has no size until
+    // you look at it. Anything sized while it was away was sized to nothing.
+    if (wasEmpty && box.width > 0 && currentChart()) setTimeout(resetView, 0);
   }
 
+  /** Where the eight lanes sit across the width. */
   function laneGeometry() {
-    var height = state.view.h;
-    var lane = Math.max(9, Math.min(26, (height - TOP - 30) / 9.4));
-    var block = lane * (STRUMLINE_SIZE * 2) + lane * 0.7;
+    var usable = Math.max(120, state.view.w - MARGIN - EVENTS);
+    var column = Math.max(18, Math.min(64, usable / 8));
+    var block = column * 8;
 
-    // Sit the two strumlines in the middle of whatever room there is, rather
-    // than leaving all the empty space underneath them.
-    var top = Math.max(TOP, TOP + (height - TOP - 30 - block) / 2);
-
-    return { lane: lane, gap: lane * 0.7, top: top };
+    return {
+      column: column,
+      left: MARGIN + Math.max(0, (usable - block) / 2),
+      block: block,
+      top: HEADER
+    };
   }
 
-  function laneY(data, geo) {
-    var index = data >= STRUMLINE_SIZE ? data - STRUMLINE_SIZE : data;
-    var below = data < STRUMLINE_SIZE ? STRUMLINE_SIZE * geo.lane + geo.gap : 0;
-
-    return geo.top + below + index * geo.lane;
+  /**
+   * The lane a note is drawn in. The opponent takes the left four columns and
+   * the player the right four, which is the way round the game shows them.
+   */
+  function laneX(data, geo) {
+    var index = data >= STRUMLINE_SIZE ? data - STRUMLINE_SIZE : data + STRUMLINE_SIZE;
+    return geo.left + index * geo.column;
   }
 
-  function timeToX(time) {
-    return GUTTER + (time - state.view.panX) * state.view.zoom;
+  function timeToY(time) {
+    return HEADER + (time - state.view.pan) * state.view.zoom;
   }
 
-  function xToTime(x) {
-    return state.view.panX + (x - GUTTER) / state.view.zoom;
+  function yToTime(y) {
+    return state.view.pan + (y - HEADER) / state.view.zoom;
   }
 
   function draw() {
@@ -2716,171 +2727,194 @@
     }
 
     var geo = laneGeometry();
-    var left = xToTime(GUTTER);
-    var right = xToTime(width);
+    var top = yToTime(HEADER);
+    var bottom = yToTime(height);
 
-    drawLanes(chart, geo, width);
-    if (state.view.grid) drawBeats(chart, geo, left, right);
-    drawNotes(chart, geo, left, right);
-    if (state.view.events) drawEvents(chart, geo, left, right);
-    drawGutter(geo);
+    drawLanes(geo, height);
+    if (state.view.grid) drawBeats(chart, geo, top, bottom);
+    drawNotes(chart, geo, top, bottom);
+    if (state.view.events) drawEvents(chart, geo, top, bottom, width);
+    drawHeader(chart, geo, width);
 
     updateReadouts(chart);
   }
 
-  function drawLanes(chart, geo, width) {
+  function drawLanes(geo, height) {
     for (var data = 0; data < STRUMLINE_SIZE * 2; data++) {
-      var y = laneY(data, geo);
+      var x = laneX(data, geo);
 
       ctx.fillStyle = data >= STRUMLINE_SIZE ? "rgba(239,234,247,.035)" : "rgba(239,234,247,.055)";
-      ctx.fillRect(GUTTER, y, width - GUTTER, geo.lane - 1);
+      ctx.fillRect(x, HEADER, geo.column - 1, height - HEADER);
     }
+
+    // The seam between the two characters.
+    ctx.fillStyle = "rgba(239,234,247,.18)";
+    ctx.fillRect(geo.left + geo.block / 2 - 0.5, HEADER, 1, height - HEADER);
   }
 
-  function drawBeats(chart, geo, left, right) {
+  function drawBeats(chart, geo, top, bottom) {
     var changes = chart.timeChanges;
-    var bottom = laneY(STRUMLINE_SIZE - 1, geo) + geo.lane;
     var end = chartLength(chart) + 8000;
+    var right = geo.left + geo.block;
+
+    ctx.font = "10px " + cssVar("--font-mono");
+    ctx.textBaseline = "middle";
 
     for (var i = 0; i < changes.length; i++) {
       var change = changes[i];
       var until = i + 1 < changes.length ? changes[i + 1].t : end;
 
-      if (until < left || change.t > right) continue;
+      if (until < top || change.t > bottom) continue;
 
       var beat = 60000 / (change.bpm > 0 ? change.bpm : 100);
-      if (beat * state.view.zoom < 4) continue;
+      var perMeasure = Math.max(1, Math.round(num(change.n, 4)));
 
-      var first = Math.max(0, Math.floor((left - change.t) / beat));
+      if (beat * state.view.zoom < 3) continue;
+
+      var first = Math.max(0, Math.floor((top - change.t) / beat));
       var guard = 0;
 
-      for (var index = first; guard < 3000; index++, guard++) {
+      for (var index = first; guard < 4000; index++, guard++) {
         var time = change.t + index * beat;
-        if (time > Math.min(until, right)) break;
+        if (time > Math.min(until, bottom)) break;
 
-        var x = Math.round(timeToX(time)) + 0.5;
-        var measure = index % 4 === 0;
+        var y = Math.round(timeToY(time)) + 0.5;
+        var measure = index % perMeasure === 0;
 
-        ctx.strokeStyle = measure ? "rgba(239,234,247,.22)" : "rgba(239,234,247,.08)";
+        ctx.strokeStyle = measure ? "rgba(239,234,247,.24)" : "rgba(239,234,247,.08)";
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(x, geo.top);
-        ctx.lineTo(x, bottom);
+        ctx.moveTo(geo.left, y);
+        ctx.lineTo(right, y);
         ctx.stroke();
+
+        // Measures are numbered down the left, with the time beside them, so
+        // a spot in the song can be found without counting.
+        if (measure && beat * perMeasure * state.view.zoom > 26) {
+          ctx.fillStyle = "#5F5578";
+          ctx.fillText(String(Math.floor(index / perMeasure) + 1), 6, y);
+
+          ctx.fillStyle = "#453D5C";
+          ctx.fillText(timeCode(time), 22, y);
+        }
       }
     }
   }
 
-  function drawNotes(chart, geo, left, right) {
-    var head = Math.min(geo.lane - 2, 15);
-    var hold = Math.max(3, head * 0.36);
+  function drawNotes(chart, geo, top, bottom) {
+    var size = Math.min(geo.column - 6, 24);
+    var hold = Math.max(4, size * 0.4);
     var swap = !!state.song.swapSides;
 
     for (var i = 0; i < chart.notes.length; i++) {
       var note = chart.notes[i];
-      if (note.t + note.l < left) continue;
-      if (note.t > right) break;
+      if (note.t + note.l < top) continue;
+      if (note.t > bottom) break;
 
       var data = swap ? flipData(note.d) : note.d;
-      var lane = data % STRUMLINE_SIZE;
-      var colour = LANE_COLOURS[lane];
-      var x = timeToX(note.t);
-      var y = laneY(data, geo) + (geo.lane - 1) / 2;
+      var colour = LANE_COLOURS[data % STRUMLINE_SIZE];
+      var x = laneX(data, geo) + (geo.column - 1) / 2;
+      var y = timeToY(note.t);
 
       if (note.l > 0) {
         ctx.fillStyle = colour;
         ctx.globalAlpha = 0.42;
-        ctx.fillRect(x, y - hold / 2, Math.max(2, note.l * state.view.zoom), hold);
+        ctx.fillRect(x - hold / 2, y, hold, Math.max(2, note.l * state.view.zoom));
         ctx.globalAlpha = 1;
       }
 
       ctx.fillStyle = colour;
-      ctx.globalAlpha = data >= STRUMLINE_SIZE ? 0.8 : 1;
-      ctx.fillRect(x - head / 2, y - head / 2, head, head);
+      ctx.globalAlpha = data >= STRUMLINE_SIZE ? 0.85 : 1;
+      ctx.fillRect(x - size / 2, y - size / 2, size, size);
       ctx.globalAlpha = 1;
 
+      // A note kind is worth seeing without opening the file.
       if (note.k) {
         ctx.fillStyle = "#100D1A";
-        ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+        ctx.fillRect(x - 2, y - 2, 4, 4);
       }
     }
   }
 
-  function drawEvents(chart, geo, left, right) {
-    var top = geo.top;
-    var bottom = laneY(STRUMLINE_SIZE - 1, geo) + geo.lane;
+  function drawEvents(chart, geo, top, bottom, width) {
+    var right = geo.left + geo.block;
 
-    ctx.font = "11px " + cssVar("--font-mono");
-    ctx.textBaseline = "top";
+    ctx.font = "10.5px " + cssVar("--font-mono");
+    ctx.textBaseline = "middle";
 
     chart.timeChanges.forEach(function (change, index) {
-      if (index === 0) return;
-      if (change.t < left || change.t > right) return;
+      if (index === 0 || change.t < top || change.t > bottom) return;
 
-      var x = Math.round(timeToX(change.t)) + 0.5;
+      var y = Math.round(timeToY(change.t)) + 0.5;
 
       ctx.strokeStyle = "#F2C14E";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(x, top);
-      ctx.lineTo(x, bottom);
+      ctx.moveTo(geo.left, y);
+      ctx.lineTo(width, y);
       ctx.stroke();
 
       ctx.fillStyle = "#F2C14E";
-      ctx.fillText(change.bpm + " bpm", x + 4, bottom + 3);
+      ctx.fillText(change.bpm + " bpm", right + 8, y - 7);
     });
 
     chart.events.forEach(function (event) {
-      if (event.t < left || event.t > right) return;
+      if (event.t < top || event.t > bottom) return;
 
-      var x = Math.round(timeToX(event.t)) + 0.5;
+      var y = Math.round(timeToY(event.t)) + 0.5;
+      var onPlayer = state.song.swapSides ? event.v.char !== 0 : event.v.char === 0;
 
-      ctx.strokeStyle = "rgba(78,217,232,.7)";
+      ctx.strokeStyle = "rgba(78,217,232,.5)";
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
-      ctx.moveTo(x, top);
-      ctx.lineTo(x, bottom);
+      ctx.moveTo(geo.left, y);
+      ctx.lineTo(width, y);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      var onPlayer = state.song.swapSides ? event.v.char !== 0 : event.v.char === 0;
-
       ctx.fillStyle = "#4ED9E8";
-      ctx.fillText(onPlayer ? "cam player" : "cam opponent", x + 4, top + 1);
+      ctx.beginPath();
+      ctx.arc(right + 12, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillText(onPlayer ? "cam player" : "cam opp", right + 20, y);
     });
   }
 
-  function drawGutter(geo) {
-    ctx.fillStyle = cssVar("--stage");
-    ctx.fillRect(0, 0, GUTTER, state.view.h);
-
-    ctx.font = "11px " + cssVar("--font-mono");
-    ctx.textBaseline = "middle";
-
-    for (var data = 0; data < STRUMLINE_SIZE * 2; data++) {
-      var y = laneY(data, geo) + (geo.lane - 1) / 2;
-
-      ctx.fillStyle = LANE_COLOURS[data % STRUMLINE_SIZE];
-      ctx.globalAlpha = data >= STRUMLINE_SIZE ? 0.75 : 1;
-      ctx.fillRect(GUTTER - 14, y - 3, 6, 6);
-      ctx.globalAlpha = 1;
-
-      ctx.fillStyle = "#A79CC0";
-      ctx.fillText(LANE_NAMES[data % STRUMLINE_SIZE], 6, y);
-    }
-
-    // Name the characters on the rows, so there is no doubt about which side
-    // of the chart is whose.
+  /** The strip along the top: who owns which four lanes, and their arrows. */
+  function drawHeader(chart, geo, width) {
     var cast = effectiveSong(state.song);
 
-    ctx.save();
-    ctx.fillStyle = "#7A6F94";
+    ctx.fillStyle = cssVar("--stage");
+    ctx.fillRect(0, 0, width, HEADER);
+
+    ctx.strokeStyle = "rgba(239,234,247,.14)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, HEADER + .5);
+    ctx.lineTo(width, HEADER + .5);
+    ctx.stroke();
+
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.font = "15px " + cssVar("--font-ui");
+
+    for (var data = 0; data < STRUMLINE_SIZE * 2; data++) {
+      var x = laneX(data, geo) + (geo.column - 1) / 2;
+
+      ctx.fillStyle = LANE_COLOURS[data % STRUMLINE_SIZE];
+      ctx.globalAlpha = data >= STRUMLINE_SIZE ? 0.8 : 1;
+      ctx.fillText(ARROWS[data % STRUMLINE_SIZE], x, HEADER / 2 + 6);
+      ctx.globalAlpha = 1;
+    }
+
     ctx.font = "10px " + cssVar("--font-ui");
-    ctx.textBaseline = "bottom";
-    ctx.fillText("OPPONENT · " + (cast.opponent || "dad"), 6, geo.top - 3);
-    ctx.fillText("PLAYER · " + (cast.player || "bf"), 6, laneY(0, geo) - 3);
-    ctx.restore();
+    ctx.fillStyle = "#7A6F94";
+    ctx.fillText("OPPONENT · " + (cast.opponent || "dad"), geo.left + geo.block / 4, 9);
+    ctx.fillText("PLAYER · " + (cast.player || "bf"), geo.left + geo.block * 0.75, 9);
+
+    ctx.textAlign = "left";
   }
 
   function updateReadouts(chart) {
@@ -2910,33 +2944,60 @@
     $("cc-stage-label").textContent = chart.source;
   }
 
-  function fitView() {
-    var chart = currentChart();
-    var space = Math.max(120, state.view.w - GUTTER - 24);
+  /** Back to the top of the song, at a zoom you can read. */
+  function resetView() {
+    state.view.zoom = BASE_ZOOM;
+    state.view.pan = -HEADER / BASE_ZOOM;
 
-    if (!chart) {
-      state.view.zoom = BASE_ZOOM;
-      state.view.panX = -300;
-      updateZoomLabel();
-      draw();
-      return;
-    }
-
-    var length = chartLength(chart) + 2000;
-
-    state.view.zoom = space / Math.max(1000, length);
-    state.view.panX = -(60 / state.view.zoom);
     updateZoomLabel();
     draw();
   }
 
-  function setZoom(zoom, anchorX) {
-    var pivot = anchorX === undefined ? GUTTER + (state.view.w - GUTTER) / 2 : anchorX;
-    var before = xToTime(pivot);
+  /** The whole song at once, however long it is. */
+  function fitView() {
+    var chart = currentChart();
+    var space = Math.max(120, state.view.h - HEADER - 16);
+
+    if (!chart) {
+      resetView();
+      return;
+    }
+
+    state.view.zoom = space / Math.max(1000, chartLength(chart) + 2000);
+    state.view.pan = -20 / state.view.zoom;
+
+    updateZoomLabel();
+    draw();
+  }
+
+  function scrollBy(pixels) {
+    state.view.pan += pixels / state.view.zoom;
+    clampPan();
+    draw();
+  }
+
+  /** Keep the song roughly on screen rather than letting it drift away. */
+  function clampPan() {
+    var chart = currentChart();
+    if (!chart) return;
+
+    var length = chartLength(chart);
+    var visible = (state.view.h - HEADER) / state.view.zoom;
+
+    var lowest = -HEADER / state.view.zoom - 400;
+    var highest = Math.max(lowest, length + 4000 - visible / 2);
+
+    state.view.pan = Math.max(lowest, Math.min(highest, state.view.pan));
+  }
+
+  function setZoom(zoom, anchorY) {
+    var pivot = anchorY === undefined ? HEADER + (state.view.h - HEADER) / 2 : anchorY;
+    var before = yToTime(pivot);
 
     state.view.zoom = Math.max(0.0008, Math.min(3, zoom));
-    state.view.panX = before - (pivot - GUTTER) / state.view.zoom;
+    state.view.pan = before - (pivot - HEADER) / state.view.zoom;
 
+    clampPan();
     updateZoomLabel();
     draw();
   }
@@ -4823,7 +4884,7 @@
       renderSongFields();
       render();
 
-      if (added) fitView();
+      if (added) resetView();
 
       if (failures.length) toast(failures[0]);
       else if (added) toast("Converted " + plural(added, "difficulty", "difficulties") + ".");
@@ -4857,7 +4918,7 @@
     state.outputIndex = 0;
 
     render();
-    fitView();
+    resetView();
     toast("Cleared.");
   }
 
@@ -5015,11 +5076,11 @@
     ctx = canvas.getContext("2d");
 
     var dragging = false;
-    var lastX = 0;
+    var lastY = 0;
 
     canvas.addEventListener("pointerdown", function (event) {
       dragging = true;
-      lastX = event.clientX;
+      lastY = event.clientY;
       canvas.classList.add("dragging");
       canvas.setPointerCapture(event.pointerId);
     });
@@ -5027,9 +5088,8 @@
     canvas.addEventListener("pointermove", function (event) {
       if (!dragging) return;
 
-      state.view.panX -= (event.clientX - lastX) / state.view.zoom;
-      lastX = event.clientX;
-      draw();
+      scrollBy(lastY - event.clientY);
+      lastY = event.clientY;
     });
 
     ["pointerup", "pointercancel"].forEach(function (name) {
@@ -5042,16 +5102,15 @@
     canvas.addEventListener("wheel", function (event) {
       event.preventDefault();
 
-      var box = canvas.getBoundingClientRect();
-
-      if (event.shiftKey) {
-        state.view.panX += event.deltaY / state.view.zoom;
-        draw();
+      // The wheel scrolls the song, the way it scrolls everything else. Hold
+      // ctrl (or pinch on a trackpad) to zoom instead.
+      if (event.ctrlKey || event.metaKey) {
+        var box = canvas.getBoundingClientRect();
+        setZoom(state.view.zoom * Math.pow(0.988, event.deltaY), event.clientY - box.top);
         return;
       }
 
-      var step = Math.pow(0.9988, event.deltaY);
-      setZoom(state.view.zoom * step, event.clientX - box.left);
+      scrollBy(event.deltaY);
     }, { passive: false });
 
     window.addEventListener("resize", function () {
@@ -5062,6 +5121,7 @@
 
   function bindTransport() {
     $("cc-fit").addEventListener("click", fitView);
+    $("cc-top").addEventListener("click", resetView);
     $("cc-zoom-in").addEventListener("click", function () { setZoom(state.view.zoom * 1.35); });
     $("cc-zoom-out").addEventListener("click", function () { setZoom(state.view.zoom / 1.35); });
 

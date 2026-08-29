@@ -746,8 +746,8 @@
             <input type="text" id="an-indices" spellcheck="false" placeholder="all of them">
           </div>
           <p class="hint" id="an-indices-note">Leave it blank to play every frame the prefix
-            matches. Give it a list like <code>0, 1, 2, 3</code> to play only those, in that
-            order — the game calls this <code>frameIndices</code>.</p>
+            matches. Give it a list like <code>0, 1, 2, 3</code>, a range like <code>0-55</code>,
+            or both together — the game calls this <code>frameIndices</code>.</p>
 
           <div class="field">
             <label>flags</label>
@@ -1417,9 +1417,14 @@
     return !!root && root.nodeName.toLowerCase() === "character";
   }
 
+  // `0-55`, `0 - 55`, `0..55` and the dashes a phone keyboard likes to insert
+  // all mean the same span of frames.
+  var RANGE = /^(\d+)\s*(?:\.\.|-|\u2013|\u2014)\s*(\d+)$/;
+
   /**
-   * `indices="0..5, 8, 10..7"` — ranges are inclusive and a descending one
-   * counts back down, matching CoolUtil.parseNumberRange.
+   * A frame list: `0, 1, 2, 3` picks those four, `0-55` picks that whole run,
+   * and the two mix freely — `0-3, 8, 12-10`. Ranges are inclusive, and one
+   * written backwards counts back down, matching CoolUtil.parseNumberRange.
    */
   function parseIndices(raw) {
     var out = [];
@@ -1428,16 +1433,21 @@
       part = part.trim();
       if (!part) return;
 
-      var split = part.indexOf("..");
-      if (split < 0) {
+      var span = part.match(RANGE);
+
+      if (!span) {
         var single = parseInt(part, 10);
-        if (isFinite(single)) out.push(single);
+        if (isFinite(single) && single >= 0) out.push(single);
         return;
       }
 
-      var from = parseInt(part.slice(0, split), 10);
-      var to = parseInt(part.slice(split + 2), 10);
+      var from = parseInt(span[1], 10);
+      var to = parseInt(span[2], 10);
       if (!isFinite(from) || !isFinite(to)) return;
+
+      // A range is a shorthand, not a licence to fill the sheet: a typo of
+      // 0-50000 should not build an array of fifty thousand.
+      if (Math.abs(to - from) > 4096) return;
 
       var step = from <= to ? 1 : -1;
       for (var i = from; ; i += step) {
@@ -1447,6 +1457,29 @@
     });
 
     return out;
+  }
+
+  /**
+   * The same list written back the short way, so a run typed as `0-55` does
+   * not come back as fifty-six numbers the next time it is looked at.
+   */
+  function formatIndices(picks) {
+    var parts = [];
+    var at = 0;
+
+    while (at < picks.length) {
+      var start = at;
+      while (at + 1 < picks.length && picks[at + 1] === picks[at] + 1) at++;
+
+      var run = at - start + 1;
+
+      if (run >= 3) parts.push(picks[start] + "-" + picks[at]);
+      else for (var k = start; k <= at; k++) parts.push(picks[k]);
+
+      at++;
+    }
+
+    return parts.join(", ");
   }
 
   /** `#AF66CE`, `0xFFAF66CE` and `AF66CE` all mean the same thing here. */
@@ -1774,18 +1807,6 @@
     return digits ? parseInt(digits[1], 10) : -1;
   }
 
-  /**
-   * Read a typed list of frame numbers. Anything that is not a number is
-   * ignored rather than guessed at, so a stray comma cannot silently drop a
-   * frame from the animation.
-   */
-  function parseIndices(value) {
-    return String(value || "")
-      .split(/[^0-9]+/)
-      .filter(function (part) { return part !== ""; })
-      .map(function (part) { return parseInt(part, 10); });
-  }
-
   function framesFor(anim) {
     if (!anim || !anim.prefix) return [];
 
@@ -1808,21 +1829,52 @@
 
     if (!picks.length) {
       note.innerHTML = total
-        ? "Blank, so it plays all <b>" + total + "</b> frames the prefix matches. A list like " +
-          "<code>0, 1, 2, 3</code> plays only those, in that order."
-        : "Leave it blank to play every frame the prefix matches. A list like <code>0, 1, 2, 3</code> " +
-          "plays only those, in that order.";
+        ? "Blank, so it plays all <b>" + total + "</b> frames the prefix matches. A range like " +
+          "<code>0-" + Math.max(0, total - 1) + "</code>, or a list like <code>0, 1, 2, 3</code>, " +
+          "plays only those."
+        : "Leave it blank to play every frame the prefix matches. A range like <code>0-55</code> " +
+          "or a list like <code>0, 1, 2, 3</code> plays only those.";
       return;
     }
 
     var missing = picks.filter(function (index) { return index >= total; });
 
+    // A range makes it easy to name hundreds of frames that are not there, so
+    // the ones past the end are summarised rather than all listed.
+    var named = missing.slice(0, 6).join(", ")
+      + (missing.length > 6 ? " and " + (missing.length - 6) + " more" : "");
+
     note.innerHTML = missing.length
       ? "Plays <b>" + (picks.length - missing.length) + "</b> of " + picks.length + " — the prefix " +
-        "only matches " + total + " frames, so " + missing.join(", ") +
+        "only matches " + total + " frames, so " + named +
         (missing.length === 1 ? " is" : " are") + " past the end."
       : "Plays <b>" + picks.length + "</b> of the " + total + " frames the prefix matches, in the " +
         "order given.";
+  }
+
+  /**
+   * What the ghost shows: the resting pose the offsets of everything else are
+   * judged against. Usually that is the idle, but a character whose idle is
+   * called something else still deserves a reference, so it falls back to
+   * whatever the character starts on, then to the first animation.
+   */
+  function ghostAnim(current) {
+    var animations = state.data.animations || [];
+
+    var idle = animations.filter(function (item) {
+      return /idle|dance/i.test(item.name);
+    })[0];
+
+    if (idle) return idle;
+
+    var starting = state.data.startingAnimation;
+
+    if (starting) {
+      var named = animations.filter(function (item) { return item.name === starting; })[0];
+      if (named && named !== current) return named;
+    }
+
+    return animations.filter(function (item) { return item !== current; })[0] || null;
   }
 
   function findAnimIndex(targetName) {
@@ -2339,9 +2391,7 @@
     var flip = !!state.data.flipX;
 
     if (state.ghost) {
-      var idle = state.data.animations.filter(function (item) {
-        return /idle|dance/i.test(item.name);
-      })[0];
+      var idle = ghostAnim(anim);
 
       if (idle && idle !== anim) {
         var ghostNames = framesFor(idle);
@@ -2358,7 +2408,7 @@
             ghostFrame,
             ghostFlip ? ghostLeft + ghostFrame.fw * scale : ghostLeft,
             ghostTop,
-            scale, ghostFlip, 0.28
+            scale, ghostFlip, onArt ? 0.55 : 0.4
           );
         }
       }
@@ -2517,7 +2567,7 @@
       $("an-flip").checked = !!anim.flipX;
 
       var picks = Array.isArray(anim.frameIndices) ? anim.frameIndices : [];
-      $("an-indices").value = picks.join(", ");
+      $("an-indices").value = formatIndices(picks);
 
       syncIndicesNote(anim, picks);
     } else {
@@ -3096,7 +3146,14 @@
 
   $("btn-ghost").addEventListener("click", function () {
     state.ghost = !state.ghost;
-    this.textContent = state.ghost ? "Ghost on" : "Ghost off";
+
+    // Naming it takes the guesswork out of a faint shape behind the sprite.
+    var behind = state.ghost ? ghostAnim(currentAnim()) : null;
+
+    this.textContent = state.ghost ? (behind ? "Ghost: " + behind.name : "Ghost on") : "Ghost off";
+    this.title = state.ghost && behind
+      ? "Showing " + behind.name + " behind the current animation, to line offsets up against"
+      : "Show the resting pose behind the current animation";
     this.classList.toggle("on", state.ghost);
   });
 
