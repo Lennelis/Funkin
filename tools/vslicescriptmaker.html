@@ -2748,6 +2748,17 @@ window.__vsmMedia = {
   };
 
   var WHO = [["Boyfriend", "bf"], ["Girlfriend", "gf"], ["Dad / opponent", "dad"]];
+
+  var COLOURS = [
+    ["black", "000000"], ["white", "FFFFFF"], ["red", "FF0000"], ["pink", "FF4FA3"],
+    ["blue", "3366FF"], ["green", "2ECC71"], ["yellow", "FFDD33"]
+  ];
+
+  var EASES = [
+    ["smoothly", "quadOut"], ["evenly", "linear"], ["gently", "sineInOut"],
+    ["with a bounce", "bounceOut"], ["snapping back", "backOut"], ["fast then slow", "expoOut"]
+  ];
+
   var CAMS = [["the game camera", "camGame"], ["the HUD camera", "camHUD"]];
 
   var HAT_COLOUR = 45;
@@ -2756,6 +2767,8 @@ window.__vsmMedia = {
   var SONG_COLOUR = 330;
   var VALUE_COLOUR = 160;
   var RAW_COLOUR = 20;
+  var TIME_COLOUR = 120;
+  var NOTE_COLOUR = 290;
 
   /* ---- blocks ----------------------------------------------------------- */
 
@@ -2888,6 +2901,163 @@ window.__vsmMedia = {
       previousStatement: null, nextStatement: null,
       colour: RAW_COLOUR,
       tooltip: "Written into the method as-is, for anything the blocks do not cover."
+    },
+    {
+      type: "fnf_wait",
+      message0: "wait %1 seconds, then %2",
+      args0: [{ type: "input_value", name: "SECS", check: "Number" }, { type: "input_dummy" }],
+      message1: "%1",
+      args1: [{ type: "input_statement", name: "DO" }],
+      previousStatement: null, nextStatement: null,
+      colour: TIME_COLOUR,
+      tooltip: "The rest of the script keeps running; only what is inside waits."
+    },
+    {
+      type: "fnf_glide_char",
+      message0: "glide %1 to x %2 y %3 over %4 s %5",
+      args0: [
+        { type: "field_dropdown", name: "WHO", options: WHO },
+        { type: "input_value", name: "X", check: "Number" },
+        { type: "input_value", name: "Y", check: "Number" },
+        { type: "input_value", name: "TIME", check: "Number" },
+        { type: "field_dropdown", name: "EASE", options: EASES }
+      ],
+      inputsInline: true,
+      previousStatement: null, nextStatement: null,
+      colour: TIME_COLOUR
+    },
+    {
+      type: "fnf_glide_zoom",
+      message0: "zoom %1 to %2 over %3 s %4",
+      args0: [
+        { type: "field_dropdown", name: "CAM", options: CAMS },
+        { type: "input_value", name: "VALUE", check: "Number" },
+        { type: "input_value", name: "TIME", check: "Number" },
+        { type: "field_dropdown", name: "EASE", options: EASES }
+      ],
+      inputsInline: true,
+      previousStatement: null, nextStatement: null,
+      colour: TIME_COLOUR
+    },
+    {
+      type: "fnf_cam_follow",
+      message0: "point the camera at %1",
+      args0: [{ type: "field_dropdown", name: "WHO", options: WHO }],
+      previousStatement: null, nextStatement: null,
+      colour: CAM_COLOUR,
+      tooltip: "Moves the point the camera follows, the way the game does between sections."
+    },
+    {
+      type: "fnf_cam_fade",
+      message0: "fade %1 to %2 over %3 s",
+      args0: [
+        { type: "field_dropdown", name: "CAM", options: CAMS },
+        { type: "field_dropdown", name: "COLOUR", options: COLOURS },
+        { type: "input_value", name: "TIME", check: "Number" }
+      ],
+      inputsInline: true,
+      previousStatement: null, nextStatement: null,
+      colour: CAM_COLOUR
+    },
+    {
+      type: "fnf_char_show",
+      message0: "%1 %2",
+      args0: [
+        { type: "field_dropdown", name: "SHOW", options: [["show", "true"], ["hide", "false"]] },
+        { type: "field_dropdown", name: "WHO", options: WHO }
+      ],
+      previousStatement: null, nextStatement: null,
+      colour: CHAR_COLOUR
+    },
+    {
+      type: "fnf_char_alpha",
+      message0: "set %1 opacity to %2",
+      args0: [
+        { type: "field_dropdown", name: "WHO", options: WHO },
+        { type: "input_value", name: "VALUE", check: "Number" }
+      ],
+      inputsInline: true,
+      previousStatement: null, nextStatement: null,
+      colour: CHAR_COLOUR,
+      tooltip: "0 is invisible, 1 is solid."
+    },
+    {
+      type: "fnf_char_move",
+      message0: "put %1 at x %2 y %3",
+      args0: [
+        { type: "field_dropdown", name: "WHO", options: WHO },
+        { type: "input_value", name: "X", check: "Number" },
+        { type: "input_value", name: "Y", check: "Number" }
+      ],
+      inputsInline: true,
+      previousStatement: null, nextStatement: null,
+      colour: CHAR_COLOUR
+    },
+    {
+      type: "fnf_prop_anim",
+      message0: "play animation %1 on prop %2",
+      args0: [
+        { type: "input_value", name: "ANIM", check: "String" },
+        { type: "input_value", name: "NAME", check: "String" }
+      ],
+      inputsInline: true,
+      previousStatement: null, nextStatement: null,
+      colour: CHAR_COLOUR,
+      tooltip: "The prop's name as the stage JSON calls it."
+    },
+    {
+      type: "fnf_prop_show",
+      message0: "%1 prop %2",
+      args0: [
+        { type: "field_dropdown", name: "SHOW", options: [["show", "true"], ["hide", "false"]] },
+        { type: "input_value", name: "NAME", check: "String" }
+      ],
+      inputsInline: true,
+      previousStatement: null, nextStatement: null,
+      colour: CHAR_COLOUR
+    },
+    {
+      type: "fnf_event_cancel",
+      message0: "stop this from happening",
+      previousStatement: null, nextStatement: null,
+      colour: NOTE_COLOUR,
+      needs: ["onNoteHit", "onNoteMiss", "onCountdownStart", "onPause", "onGameOver"],
+      tooltip: "Cancels the event, so the game's own handling of it does not run."
+    },
+    {
+      type: "fnf_note_health",
+      message0: "change health by %1 instead",
+      args0: [{ type: "input_value", name: "VALUE", check: "Number" }],
+      inputsInline: true,
+      previousStatement: null, nextStatement: null,
+      colour: NOTE_COLOUR,
+      needs: ["onNoteHit", "onNoteMiss"]
+    },
+    {
+      type: "fnf_note_silent",
+      message0: "do not play the note sound",
+      previousStatement: null, nextStatement: null,
+      colour: NOTE_COLOUR,
+      needs: ["onNoteHit", "onNoteMiss"]
+    },
+    { type: "fnf_note_dir", message0: "note direction", output: "Number", colour: NOTE_COLOUR, needs: ["onNoteHit", "onNoteMiss"] },
+    { type: "fnf_note_kind", message0: "note kind", output: "String", colour: NOTE_COLOUR, needs: ["onNoteHit", "onNoteMiss"] },
+    { type: "fnf_judgement", message0: "judgement", output: "String", colour: NOTE_COLOUR, needs: "onNoteHit" },
+    { type: "fnf_combo_break", message0: "broke the combo", output: "Boolean", colour: NOTE_COLOUR, needs: "onNoteHit" },
+    { type: "fnf_song_beat", message0: "song beat", output: "Number", colour: VALUE_COLOUR },
+    { type: "fnf_song_step", message0: "song step", output: "Number", colour: VALUE_COLOUR },
+    { type: "fnf_bpm", message0: "bpm", output: "Number", colour: VALUE_COLOUR },
+    {
+      type: "fnf_random",
+      message0: "random %1 from %2 to %3",
+      args0: [
+        { type: "field_dropdown", name: "TYPE", options: [["whole number", "int"], ["number", "float"]] },
+        { type: "input_value", name: "A", check: "Number" },
+        { type: "input_value", name: "B", check: "Number" }
+      ],
+      inputsInline: true,
+      output: "Number",
+      colour: VALUE_COLOUR
     },
     { type: "fnf_beat", message0: "beat", output: "Number", colour: VALUE_COLOUR, needs: "onBeatHit" },
     { type: "fnf_step", message0: "step", output: "Number", colour: VALUE_COLOUR, needs: "onStepHit" },
@@ -3024,6 +3194,85 @@ window.__vsmMedia = {
     return code.replace(/\n+$/, "") + "\n";
   };
 
+  function prop(block) {
+    return "PlayState.instance.currentStage.getNamedProp(" + value(block, "NAME", "'prop'") + ")";
+  }
+
+  function ease(block) { return "FlxEase." + block.getFieldValue("EASE"); }
+
+  F.fnf_wait = function (block) {
+    var body = Haxe.statementToCode(block, "DO");
+    return "new FlxTimer().start(" + value(block, "SECS", "1.0") + ", function(_) {\n" + body + "});\n";
+  };
+
+  F.fnf_glide_char = function (block) {
+    return "FlxTween.tween(" + character(block.getFieldValue("WHO"))
+      + ", {x: " + value(block, "X", "0") + ", y: " + value(block, "Y", "0") + "}, "
+      + value(block, "TIME", "1.0") + ", {ease: " + ease(block) + "});\n";
+  };
+
+  F.fnf_glide_zoom = function (block) {
+    return "FlxTween.tween(PlayState.instance." + block.getFieldValue("CAM")
+      + ", {zoom: " + value(block, "VALUE", "1.0") + "}, "
+      + value(block, "TIME", "1.0") + ", {ease: " + ease(block) + "});\n";
+  };
+
+  // The same two lines PlayState uses when it moves the camera between sections.
+  F.fnf_cam_follow = function (block) {
+    var who = block.getFieldValue("WHO");
+    return "var _" + who + " = " + character(who) + ";\n"
+      + "PlayState.instance.cameraFollowPoint.setPosition(_" + who + ".cameraFocusPoint.x, _"
+      + who + ".cameraFocusPoint.y);\n";
+  };
+
+  F.fnf_cam_fade = function (block) {
+    return "PlayState.instance." + block.getFieldValue("CAM")
+      + ".fade(0xFF" + block.getFieldValue("COLOUR") + ", " + value(block, "TIME", "1.0") + ", false);\n";
+  };
+
+  F.fnf_char_show = function (block) {
+    return character(block.getFieldValue("WHO")) + ".visible = " + block.getFieldValue("SHOW") + ";\n";
+  };
+
+  F.fnf_char_alpha = function (block) {
+    return character(block.getFieldValue("WHO")) + ".alpha = " + value(block, "VALUE", "1.0") + ";\n";
+  };
+
+  F.fnf_char_move = function (block) {
+    return character(block.getFieldValue("WHO")) + ".setPosition("
+      + value(block, "X", "0") + ", " + value(block, "Y", "0") + ");\n";
+  };
+
+  F.fnf_prop_anim = function (block) {
+    return prop(block) + ".animation.play(" + value(block, "ANIM", "'idle'") + ", true);\n";
+  };
+
+  F.fnf_prop_show = function (block) {
+    return prop(block) + ".visible = " + block.getFieldValue("SHOW") + ";\n";
+  };
+
+  F.fnf_event_cancel = function () { return "event.cancelEvent();\n"; };
+
+  F.fnf_note_health = function (block) {
+    return "event.healthChange = " + value(block, "VALUE", "0") + ";\n";
+  };
+
+  F.fnf_note_silent = function () { return "event.playSound = false;\n"; };
+
+  F.fnf_note_dir = function () { return ["event.note.direction", Haxe.ORDER_ATOMIC]; };
+  F.fnf_note_kind = function () { return ["event.note.kind", Haxe.ORDER_ATOMIC]; };
+  F.fnf_judgement = function () { return ["event.judgement", Haxe.ORDER_ATOMIC]; };
+  F.fnf_combo_break = function () { return ["event.isComboBreak", Haxe.ORDER_ATOMIC]; };
+
+  F.fnf_song_beat = function () { return ["Conductor.instance.currentBeat", Haxe.ORDER_ATOMIC]; };
+  F.fnf_song_step = function () { return ["Conductor.instance.currentStep", Haxe.ORDER_ATOMIC]; };
+  F.fnf_bpm = function () { return ["Conductor.instance.bpm", Haxe.ORDER_ATOMIC]; };
+
+  F.fnf_random = function (block) {
+    return ["FlxG.random." + block.getFieldValue("TYPE") + "("
+      + value(block, "A", "0") + ", " + value(block, "B", "1") + ")", Haxe.ORDER_ATOMIC];
+  };
+
   F.fnf_beat = function () { return ["event.beat", Haxe.ORDER_ATOMIC]; };
   F.fnf_step = function () { return ["event.step", Haxe.ORDER_ATOMIC]; };
   F.fnf_elapsed = function () { return ["event.elapsed", Haxe.ORDER_ATOMIC]; };
@@ -3133,7 +3382,12 @@ window.__vsmMedia = {
         kind: "category", name: "Characters", colour: CHAR_COLOUR,
         contents: [
           { kind: "block", type: "fnf_play_anim", inputs: { ANIM: shadowText("hey") } },
-          { kind: "block", type: "fnf_dance" }
+          { kind: "block", type: "fnf_dance" },
+          { kind: "block", type: "fnf_char_show" },
+          { kind: "block", type: "fnf_char_alpha", inputs: { VALUE: shadowNumber(1) } },
+          { kind: "block", type: "fnf_char_move", inputs: { X: shadowNumber(0), Y: shadowNumber(0) } },
+          { kind: "block", type: "fnf_prop_anim", inputs: { ANIM: shadowText("idle"), NAME: shadowText("prop") } },
+          { kind: "block", type: "fnf_prop_show", inputs: { NAME: shadowText("prop") } }
         ]
       },
       {
@@ -3141,7 +3395,31 @@ window.__vsmMedia = {
         contents: [
           { kind: "block", type: "fnf_cam_zoom", inputs: { VALUE: shadowNumber(1) } },
           { kind: "block", type: "fnf_cam_shake", inputs: { AMOUNT: shadowNumber(0.01), TIME: shadowNumber(0.5) } },
-          { kind: "block", type: "fnf_cam_flash", inputs: { TIME: shadowNumber(0.5) } }
+          { kind: "block", type: "fnf_cam_flash", inputs: { TIME: shadowNumber(0.5) } },
+          { kind: "block", type: "fnf_cam_fade", inputs: { TIME: shadowNumber(1) } },
+          { kind: "block", type: "fnf_cam_follow" }
+        ]
+      },
+      {
+        kind: "category", name: "Over time", colour: TIME_COLOUR,
+        contents: [
+          { kind: "block", type: "fnf_wait", inputs: { SECS: shadowNumber(1) } },
+          { kind: "block", type: "fnf_glide_char",
+            inputs: { X: shadowNumber(0), Y: shadowNumber(0), TIME: shadowNumber(1) } },
+          { kind: "block", type: "fnf_glide_zoom",
+            inputs: { VALUE: shadowNumber(1.2), TIME: shadowNumber(1) } }
+        ]
+      },
+      {
+        kind: "category", name: "This note", colour: NOTE_COLOUR,
+        contents: [
+          { kind: "block", type: "fnf_event_cancel" },
+          { kind: "block", type: "fnf_note_health", inputs: { VALUE: shadowNumber(0) } },
+          { kind: "block", type: "fnf_note_silent" },
+          { kind: "block", type: "fnf_note_dir" },
+          { kind: "block", type: "fnf_note_kind" },
+          { kind: "block", type: "fnf_judgement" },
+          { kind: "block", type: "fnf_combo_break" }
         ]
       },
       {
@@ -3149,12 +3427,25 @@ window.__vsmMedia = {
         contents: [
           { kind: "block", type: "fnf_set_health", inputs: { VALUE: shadowNumber(1) } },
           { kind: "block", type: "fnf_add_score", inputs: { VALUE: shadowNumber(500) } },
-          { kind: "block", type: "fnf_play_sound", inputs: { KEY: shadowText("confirmMenu") } }
+          { kind: "block", type: "fnf_play_sound", inputs: { KEY: shadowText("confirmMenu") } },
+          { kind: "block", type: "fnf_song_beat" },
+          { kind: "block", type: "fnf_song_step" },
+          { kind: "block", type: "fnf_bpm" }
         ]
       },
       {
         kind: "category", name: "Values", colour: VALUE_COLOUR,
-        contents: stack(["fnf_beat", "fnf_step", "fnf_elapsed", "fnf_combo", "fnf_health", "fnf_score", "math_number", "text"])
+        contents: [
+          { kind: "block", type: "fnf_beat" },
+          { kind: "block", type: "fnf_step" },
+          { kind: "block", type: "fnf_elapsed" },
+          { kind: "block", type: "fnf_combo" },
+          { kind: "block", type: "fnf_health" },
+          { kind: "block", type: "fnf_score" },
+          { kind: "block", type: "fnf_random", inputs: { A: shadowNumber(1), B: shadowNumber(10) } },
+          { kind: "block", type: "math_number" },
+          { kind: "block", type: "text" }
+        ]
       },
       {
         kind: "category", name: "Logic", colour: 210,
@@ -3178,6 +3469,16 @@ window.__vsmMedia = {
   };
 
   /* ---- the tool --------------------------------------------------------- */
+
+  /** Symbol -> the import it needs. FlxG and Paths are default imports. */
+  var SYMBOLS = [
+    ["PlayState", "funkin.play.PlayState"],
+    ["FunkinSound", "funkin.audio.FunkinSound"],
+    ["Conductor", "funkin.Conductor"],
+    ["FlxTimer", "flixel.util.FlxTimer"],
+    ["FlxTween", "flixel.tweens.FlxTween"],
+    ["FlxEase", "flixel.tweens.FlxEase"]
+  ];
 
   var STORE_KEY = "vslice-script-maker-v1";
 
@@ -3278,6 +3579,12 @@ window.__vsmMedia = {
     return name.charAt(0).toUpperCase() + name.slice(1);
   }
 
+  /** "a", "a and b", "a, b and c" -- a list someone would actually read out. */
+  function list(items) {
+    if (items.length < 2) return items[0] || "";
+    return items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
+  }
+
   /** Blocks that only mean something inside a particular hook. */
   function checkPlacement() {
     var notes = [];
@@ -3286,12 +3593,12 @@ window.__vsmMedia = {
       var needs = NEEDS[block.type];
       if (!needs) return;
 
-      var parent = block.getRootBlock();
-      var hook = HOOK_OF[parent.type];
+      var allowed = [].concat(needs);
+      var hook = HOOK_OF[block.getRootBlock().type];
 
-      if (hook !== needs) {
-        notes.push("“" + block.toString() + "” only has a value inside "
-          + needs + ", so it will not read what you expect here.");
+      if (allowed.indexOf(hook) === -1) {
+        notes.push("“" + block.toString() + "” only works inside "
+          + list(allowed) + ", so it will not do what you expect here.");
       }
     });
 
@@ -3314,9 +3621,22 @@ window.__vsmMedia = {
       return "  var " + name + ":Dynamic = null;\n";
     }).join("");
 
+    // Polymod gives every script Assets, Paths, Preferences, Constants and
+    // FlxG for free; anything else has to be imported. Reading the symbols
+    // back out of the generated code covers the raw-code block too, which no
+    // per-block list could.
+    var imports = [kind.base];
+
+    SYMBOLS.forEach(function (pair) {
+      if (new RegExp("\\b" + pair[0] + "\\b").test(methods)) imports.push(pair[1]);
+    });
+
     var head = "package;\n\n"
-      + "import funkin.play.PlayState;\n"
-      + "import " + kind.base + ";\n\n";
+      + imports.filter(function (name, i, all) { return all.indexOf(name) === i; })
+        .sort()
+        .map(function (name) { return "import " + name + ";\n"; })
+        .join("")
+      + "\n";
 
     var body = "class " + className() + " extends " + kind.baseName + "\n{\n"
       + fields + (fields ? "\n" : "")
@@ -3324,7 +3644,7 @@ window.__vsmMedia = {
       + methods
       + "}\n";
 
-    return head + body.replace(/\n{3,}}/g, "\n}");
+    return (head + body).replace(/\n{3,}/g, "\n\n").replace(/\n\n}/g, "\n}");
   }
 
   function refresh() {
