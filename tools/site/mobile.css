@@ -187,3 +187,22 @@
 @media (max-width: 900px) and (pointer: coarse) {
   canvas { touch-action: none; }
 }
+
+/* ---- settings ------------------------------------------------------------
+   Set on the root element by settings.js, and read here so a tool needs no
+   code of its own to honour them. */
+
+:root[data-hints="off"] .hint,
+:root[data-hints="off"] .empty-note { display: none !important; }
+
+:root[data-switcher="off"] .switcher { display: none !important; }
+
+/* Low quality drops the work the menu does per frame rather than the art it
+   shows: no parallax repaint, no mask, no shadows. */
+:root[data-quality="low"] .backdrop i {
+  background-attachment: scroll;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+
+:root[data-quality="low"] .face { transition: none !important; }

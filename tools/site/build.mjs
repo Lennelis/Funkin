@@ -25,13 +25,25 @@ const TOOLS = [
   "vslicesheetpacker.html",
   "vsliceleveleditor.html",
   "vslicecutsceneeditor.html",
-  "vslicestageeditor.html"
+  "vslicestageeditor.html",
+  "vslicescriptmaker.html"
 ];
 
 const mobileCss = fs.readFileSync(path.join(here, "mobile.css"), "utf8");
 const mobileJs = fs.readFileSync(path.join(here, "mobile.js"), "utf8");
+const settingsJs = fs.readFileSync(path.join(here, "settings.js"), "utf8");
 
 /** The head tags that make a page behave like an installed app. */
+const EARLY_THEME = `<script>
+try {
+  var s = JSON.parse(localStorage.getItem("vslice-settings-v1")) || {};
+  if (s.theme && s.theme !== "system") document.documentElement.dataset.theme = s.theme;
+  if (s.hints === false) document.documentElement.dataset.hints = "off";
+  if (s.quality === "low") document.documentElement.dataset.quality = "low";
+  if (s.switcher === false) document.documentElement.dataset.switcher = "off";
+} catch (e) {}
+</script>`;
+
 const APP_HEAD = `
 <meta name="theme-color" content="#D5187A" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#14111F" media="(prefers-color-scheme: dark)">
@@ -48,6 +60,10 @@ const APP_HEAD = `
 // straight off their phone, where nothing is around to inject anything.
 const START = "<!-- touch-layer: built from tools/site, do not edit here -->";
 const END = "<!-- end touch-layer -->";
+const THEME_START = "<!-- settings: read before first paint -->";
+const THEME_END = "<!-- end settings -->";
+const THEME_FENCE = new RegExp(THEME_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\S]*?" + THEME_END, "i");
+
 const LAYER = new RegExp(START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\S]*?" + END, "i");
 
 /**
@@ -62,11 +78,14 @@ function appify(html, pwa) {
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
   );
 
+  html = html.replace(THEME_FENCE, "");
+  html = html.replace(/<\/head>/i, THEME_START + EARLY_THEME + THEME_END + "</head>");
+
   if (pwa && !html.includes('rel="manifest"')) {
     html = html.replace(/<\/head>/i, APP_HEAD + "</head>");
   }
 
-  const layer = `${START}\n<style>\n${mobileCss}\n</style>\n<script>\n${mobileJs}\n</script>\n${END}`;
+  const layer = `${START}\n<style>\n${mobileCss}\n</style>\n<script>\n${settingsJs}\n</script>\n<script>\n${mobileJs}\n</script>\n${END}`;
 
   // Replace whatever is already there, so building never doubles it up.
   if (LAYER.test(html)) return html.replace(LAYER, layer);
@@ -107,8 +126,14 @@ for (const name of TOOLS) {
   console.log(`  + ${name}`);
 }
 
-const hub = fs.readFileSync(path.join(here, "hub.html"), "utf8").replace("/*FONTS*/", fonts);
-fs.writeFileSync(path.join(out, "index.html"), hub);
+// The hub has its own layout, so it takes the settings plumbing without the
+// pane-tab layer the tools need.
+const hub = fs.readFileSync(path.join(here, "hub.html"), "utf8")
+  .replace("/*FONTS*/", fonts)
+  .replace("<!--SETTINGS-->", `<script>\n${settingsJs}\n</script>`);
+
+// No <head> of its own, so the pre-paint read goes at the very top.
+fs.writeFileSync(path.join(out, "index.html"), THEME_START + EARLY_THEME + THEME_END + "\n" + hub);
 console.log("  + index.html");
 
 for (const asset of [

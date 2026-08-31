@@ -232,6 +232,96 @@ footer span { opacity: 0.6; }
   white-space: nowrap;
 }
 
+/* ---- settings ------------------------------------------------------------ */
+
+.settings {
+  position: fixed;
+  z-index: 4;
+  left: max(12px, calc(50vw - var(--col) / 2 + 12px));
+  top: calc(env(safe-area-inset-top) + 60px);
+  width: min(280px, calc(100vw - 24px));
+  padding: 14px 16px 16px;
+  border: 3px solid #7E7488;
+  border-radius: 18px;
+  background: #171419;
+  color: #C9C1CE;
+  font-size: 14px;
+}
+
+.settings[hidden] { display: none !important; }
+
+.settings h2 {
+  margin: 0 0 12px;
+  color: #FFFFFF;
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 2px solid #2C2731;
+}
+
+.setting:first-of-type { border-top: 0; }
+
+.setting > span { flex: 1; }
+
+.setting small {
+  display: block;
+  color: #857B8C;
+  font-size: 12px;
+}
+
+.seg { display: flex; gap: 3px; }
+
+.seg button {
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: #2C2731;
+  color: #C9C1CE;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.seg button[aria-pressed="true"] { background: #6C7BE0; color: #FFFFFF; }
+
+.toggle {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 13px;
+  background: #2C2731;
+  cursor: pointer;
+}
+
+.toggle::after {
+  content: "";
+  display: block;
+  width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: #857B8C;
+  transition: transform 120ms ease-out, background 120ms ease-out;
+}
+
+.toggle[aria-pressed="true"] { background: #6C7BE0; }
+.toggle[aria-pressed="true"]::after { transform: translateX(20px); background: #FFFFFF; }
+
+.settings .soon { opacity: 0.45; }
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle::after { transition: none; }
+}
+
 /* ---- the switcher tab ---------------------------------------------------- */
 
 .switcher {
@@ -267,6 +357,16 @@ footer span { opacity: 0.6; }
 }
 
 .jump[hidden] { display: none; }
+
+/* The tools get these from the shared layer; the hub carries its own copy. */
+:root[data-switcher="off"] .switcher { display: none !important; }
+
+:root[data-quality="low"] .backdrop i {
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+
+:root[data-quality="low"] .face { transition: none !important; }
 
 .jump a {
   padding: 7px 12px;
@@ -349,6 +449,34 @@ footer span { opacity: 0.6; }
   </footer>
 </div>
 
+<div class="settings" id="settings" hidden>
+  <h2>Settings</h2>
+
+  <div class="setting">
+    <span>Theme</span>
+    <div class="seg" role="group" aria-label="Theme">
+      <button type="button" data-theme-choice="system">Auto</button>
+      <button type="button" data-theme-choice="light">Light</button>
+      <button type="button" data-theme-choice="dark">Dark</button>
+    </div>
+  </div>
+
+  <div class="setting">
+    <span>Hints<small>The explaining lines in the editors</small></span>
+    <button class="toggle" type="button" data-setting="hints" aria-pressed="true" aria-label="Show hints"></button>
+  </div>
+
+  <div class="setting">
+    <span>Switcher<small>The tab that jumps between tools</small></span>
+    <button class="toggle" type="button" data-setting="switcher" aria-pressed="true" aria-label="Show the switcher"></button>
+  </div>
+
+  <div class="setting">
+    <span>Low quality<small>Drops the menu's parallax and effects</small></span>
+    <button class="toggle" type="button" data-setting="quality" aria-pressed="false" aria-label="Low quality mode"></button>
+  </div>
+</div>
+
 <aside class="switcher">
   <div class="jump" id="jump" hidden>
     <a href="vslicecharactereditor.html">Character Editor</a>
@@ -358,9 +486,12 @@ footer span { opacity: 0.6; }
     <a href="vslicesheetpacker.html">Sheet Packer</a>
     <a href="vsliceleveleditor.html">Level Editor</a>
     <a href="vslicechartconverter.html">Chart Converter</a>
+    <a href="vslicescriptmaker.html">Script Maker</a>
   </div>
   <button class="tab" type="button" aria-label="Jump to an editor" aria-controls="jump" aria-expanded="false"></button>
 </aside>
+
+<!--SETTINGS-->
 
 <script>
 (function () {
@@ -390,6 +521,54 @@ footer span { opacity: 0.6; }
 
   parallax();
 
+  /* The panel writes straight through to the shared store, so a change here
+     is already true in every tool the next time one is opened. */
+  var settings = window.VSliceSettings;
+  var panel = document.getElementById("settings");
+  var gear = document.querySelector(".gear");
+
+  function paintPanel() {
+    [].forEach.call(panel.querySelectorAll("[data-theme-choice]"), function (button) {
+      button.setAttribute("aria-pressed", String(settings.get("theme") === button.dataset.themeChoice));
+    });
+
+    [].forEach.call(panel.querySelectorAll("[data-setting]"), function (button) {
+      var name = button.dataset.setting;
+      var on = name === "quality" ? settings.get("quality") === "low" : settings.get(name);
+      button.setAttribute("aria-pressed", String(!!on));
+    });
+  }
+
+  panel.addEventListener("click", function (event) {
+    var choice = event.target.closest("[data-theme-choice]");
+    if (choice) settings.set("theme", choice.dataset.themeChoice);
+
+    var toggle = event.target.closest("[data-setting]");
+    if (toggle) {
+      var name = toggle.dataset.setting;
+      if (name === "quality") settings.set("quality", settings.get("quality") === "low" ? "full" : "low");
+      else settings.set(name, !settings.get(name));
+    }
+
+    if (choice || toggle) paintPanel();
+  });
+
+  gear.addEventListener("click", function () {
+    var open = panel.hidden;
+    panel.hidden = !open;
+    gear.setAttribute("aria-expanded", String(open));
+    if (open) paintPanel();
+  });
+
+  document.addEventListener("click", function (event) {
+    if (panel.hidden || event.target.closest(".settings") || event.target.closest(".gear")) return;
+    panel.hidden = true;
+    gear.setAttribute("aria-expanded", "false");
+  });
+
+  settings.subscribe(paintPanel);
+  paintPanel();
+
   var tab = document.querySelector(".tab");
   var jump = document.getElementById("jump");
 
@@ -406,7 +585,15 @@ footer span { opacity: 0.6; }
   });
 
   document.addEventListener("keydown", function (event) {
-    if (event.key !== "Escape" || jump.hidden) return;
+    if (event.key !== "Escape") return;
+
+    if (!panel.hidden) {
+      panel.hidden = true;
+      gear.setAttribute("aria-expanded", "false");
+      gear.focus();
+    }
+
+    if (jump.hidden) return;
     jump.hidden = true;
     tab.setAttribute("aria-expanded", "false");
     tab.focus();
