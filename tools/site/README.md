@@ -81,3 +81,20 @@ GitHub README, for one:
   <img alt="Made with Claude" src="tools/site/brand/made-with-claude-light.svg" height="40">
 </picture>
 ```
+
+## Script Maker
+
+The one tool with a dependency: Blockly (Apache-2.0, same as this repo's source),
+inlined like everything else so the file still runs on its own.
+
+Blockly's default media path points at a Google host, and its own stylesheet
+bakes that path into cursor and sprite rules, so the assembled bundle has the
+`<<<PATH>>>` token substituted for data URIs at build time. The trashcan and
+Blockly's zoom buttons are turned off because they resolve `sprites.png`
+internally, where a compiled bundle can't be intercepted; the tool draws its
+own zoom controls instead. The result makes no network requests at all.
+
+The blocks generate HScript classes for Polymod. The hook list, the event
+types and the API the blocks call are read from `source/funkin`, not invented:
+hats become `override function on…(event:…)` with a `super` call, and
+everything else is that method's body.

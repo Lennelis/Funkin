@@ -25,7 +25,8 @@ const TOOLS = [
   "vslicesheetpacker.html",
   "vsliceleveleditor.html",
   "vslicecutsceneeditor.html",
-  "vslicestageeditor.html"
+  "vslicestageeditor.html",
+  "vslicescriptmaker.html"
 ];
 
 const mobileCss = fs.readFileSync(path.join(here, "mobile.css"), "utf8");
