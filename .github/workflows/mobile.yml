@@ -1,9 +1,15 @@
-# Checks the editors app in mobile/.
+# Checks the editors app in mobile/, and leaves an APK you can install.
 #
-# The APK build is here rather than left to whoever runs it locally, because
-# it is what compiles the Storage Access Framework bridge in
-# android/app/src/main/kotlin — the Dart half is covered by the tests, and
-# nothing else would ever build the Kotlin.
+# The build is here rather than left to whoever runs it locally for two
+# reasons: it is the only thing that compiles the Storage Access Framework
+# bridge in android/app/src/main/kotlin (the Dart half is covered by the
+# tests, but nothing else would ever build the Kotlin), and it means there is
+# always a current APK to put on a phone without a toolchain to hand.
+#
+# The APK is signed with the debug key, which is what Flutter falls back to
+# when a project has no signing config of its own. That installs fine when you
+# sideload it. It is not what you would put on Play, and getting there means
+# a real keystore and a signingConfig in android/app/build.gradle.kts.
 
 name: Check the editors app
 
@@ -51,4 +57,13 @@ jobs:
 
       - run: flutter test
 
-      - run: flutter build apk --debug
+      - run: flutter build apk --release
+
+      # Kept for a week, which is longer than a branch usually goes without
+      # another push replacing it anyway.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: funkin-editors-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 7

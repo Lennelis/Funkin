@@ -31,6 +31,13 @@ flutter analyze
 Debug builds are fine for using it. `flutter build apk --release` makes
 something installable.
 
+**Getting an APK without a toolchain.** Every push runs
+`.github/workflows/mobile.yml`, which builds a release APK and attaches it to
+the run — open the run from the repository's Actions tab and it is under
+Artifacts, as `funkin-editors-apk`. It is signed with the debug key, which is
+what Flutter falls back to when a project has no signing config; that installs
+fine when you sideload it, and is not what you would put on Play.
+
 **Android only for now.** There is no iOS target in the tree, deliberately:
 the folder access below is the Storage Access Framework, which iOS does not
 have, so an iOS build would come up and then be unable to open anything. Adding
