@@ -1,0 +1,54 @@
+# Checks the editors app in mobile/.
+#
+# The APK build is here rather than left to whoever runs it locally, because
+# it is what compiles the Storage Access Framework bridge in
+# android/app/src/main/kotlin — the Dart half is covered by the tests, and
+# nothing else would ever build the Kotlin.
+
+name: Check the editors app
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/mobile.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/mobile.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Pinned to what the app was written against, so a Flutter release
+          # does not turn up as a failure on an unrelated pull request.
+          flutter-version: 3.47.3
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter analyze
+
+      - run: flutter test
+
+      - run: flutter build apk --debug
