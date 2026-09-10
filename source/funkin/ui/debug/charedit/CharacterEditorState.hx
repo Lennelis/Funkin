@@ -112,17 +112,44 @@ class CharacterEditorState extends MusicBeatState
   static final TILE:Float = 88;
 
   /**
-   * What an open dropdown looks like.
+   * Sizes for fingers rather than for a mouse pointer.
    *
-   * On a phone HaxeUI opens a dropdown as a modal in the middle of the
-   * screen, which is the right shape for a thumb, but its stylesheet sizes
-   * that modal at three quarters of the screen whatever is in it. This sizes
-   * the modal to the control it belongs to and gives the rows enough height
-   * to hit.
+   * The toolkit's own numbers assume a pointer that lands where it is aimed:
+   * a stepper's arrows get four pixels of padding either side, a checkbox is
+   * eighteen pixels square. Those are fine targets for a mouse and much too
+   * small for a thumb, and they are set in one stylesheet, so this is one
+   * stylesheet too rather than a size written onto every control in every
+   * layout — which also reaches the controls that are built in code and have
+   * no layout to write it on.
+   *
+   * The menu bar's height is measured at runtime, so the windows follow it
+   * down on their own when its rows get taller.
    */
-  static final POPUP_STYLE:String = '
-    .dropdown-popup:mobile { width: 350px; }
-    .dropdown-popup .listview .itemrenderer { padding: 12px 10px; }
+  static final TOUCH_STYLE:String = '
+    .button { padding: 14px 20px; }
+
+    .number-stepper .stepper-inc,
+    .number-stepper .stepper-deinc { padding: 6px 18px; }
+
+    .checkbox-value { width: 32px; height: 32px; }
+
+    .dropdown { padding: 12px 12px; }
+    .textfield { padding: 12px 10px; }
+
+    .menu { initial-width: 320px; }
+    .menuitem { padding: 14px; padding-left: 18px; }
+
+    .dialog-title { padding: 12px; }
+    .dialog-close-button,
+    .dialog-minimize-button { padding: 12px; }
+
+    /*
+      On a phone HaxeUI opens a dropdown as a modal in the middle of the
+      screen, which is the right shape for a thumb, but its stylesheet sizes
+      that modal at three quarters of the screen whatever is in it.
+    */
+    .dropdown-popup:mobile { width: 360px; }
+    .dropdown-popup .listview .itemrenderer { padding: 16px 12px; }
   ';
 
   /**
@@ -329,7 +356,7 @@ class CharacterEditorState extends MusicBeatState
 
     // Cleared again by the hub on the way back out, the same way the debug
     // menu clears what it adds.
-    haxe.ui.Toolkit.styleSheet.parse(POPUP_STYLE, 'user');
+    haxe.ui.Toolkit.styleSheet.parse(TOUCH_STYLE, 'user');
 
     // Made now rather than when it is first needed, so that the folder is
     // there to be found by someone plugging the phone into a computer.
