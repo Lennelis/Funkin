@@ -63,9 +63,7 @@ class EditorHubState extends MusicBeatState
     #if FEATURE_STAGE_EDITOR
     createItem("STAGE EDITOR", openStageEditor);
     #end
-    #if FEATURE_ANIMATION_EDITOR
-    createItem("ANIMATION EDITOR", openAnimationEditor);
-    #end
+    createItem("CHARACTER EDITOR", openCharacterEditor);
     createItem("PLAY A SONG", openFreeplay);
 
     #if mobile
@@ -184,20 +182,18 @@ class EditorHubState extends MusicBeatState
   }
   #end
 
-  #if FEATURE_ANIMATION_EDITOR
-  function openAnimationEditor():Void
+  function openCharacterEditor():Void
   {
-    open('the animation editor', () -> {
+    open('the character editor', () -> {
       FlxTransitionableState.skipNextTransIn = true;
-      switchToAnimationEditor();
+      switchToCharacterEditor();
     });
   }
 
-  function switchToAnimationEditor():Void
+  function switchToCharacterEditor():Void
   {
-    FlxG.switchState(() -> new funkin.ui.debug.anim.DebugBoundingState());
+    FlxG.switchState(() -> new funkin.ui.debug.charedit.CharacterEditorState());
   }
-  #end
 
   #if mobile
   function goBack():Void
