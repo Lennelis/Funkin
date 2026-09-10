@@ -318,6 +318,24 @@ class CharacterDataParser
   }
 
   /**
+   * Put a character into the cache without a file behind it.
+   *
+   * For an editor building a character that has not been saved anywhere yet:
+   * everything downstream asks the cache rather than the disk, so a character
+   * registered here can be fetched, built and played like any other, and is
+   * gone again the next time the cache is rebuilt.
+   *
+   * @param charId The ID to register it under.
+   * @param charData The character data.
+   */
+  public static function registerCharacterData(charId:String, charData:CharacterData):Void
+  {
+    if (charId == null || charId == '' || charData == null) return;
+
+    characterCache.set(charId, charData);
+  }
+
+  /**
    * Returns the idle frame of a character.
    */
   public static function getCharPixelIconAsset(char:String):Null<FlxFrame>
@@ -406,6 +424,23 @@ class CharacterDataParser
   {
     var rawJson:String = loadCharacterFile(charId);
 
+    return parseCharacterDataString(charId, rawJson);
+  }
+
+  /**
+   * Read character data that is not in a file.
+   *
+   * The same migration and validation a character read off disk goes through,
+   * for one built somewhere else — an editor assembling a character out of a
+   * sprite sheet, say. Going through here rather than parsing it directly is
+   * what fills in everything the caller did not think to write.
+   *
+   * @param charId The character ID, used for error messages.
+   * @param rawJson The character data as text.
+   * @return The validated character data, or null if it could not be read.
+   */
+  public static function parseCharacterDataString(charId:String, rawJson:String):Null<CharacterData>
+  {
     var charData:Null<CharacterData> = migrateCharacterData(rawJson, charId);
 
     return validateCharacterData(charId, charData);

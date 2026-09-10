@@ -4,8 +4,10 @@ import flixel.FlxSprite;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.math.FlxPoint;
 import flixel.util.FlxColor;
+import funkin.data.animation.AnimationData;
 import funkin.data.character.CharacterData;
 import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.character.CharacterData.HealthIconData;
 import funkin.data.stage.StageRegistry;
 import funkin.modding.events.ScriptEvent;
 import funkin.modding.events.ScriptEventDispatcher;
@@ -24,13 +26,18 @@ import haxe.ui.components.CheckBox;
 import haxe.ui.components.DropDown;
 import haxe.ui.components.Label;
 import haxe.ui.components.NumberStepper;
+import haxe.ui.components.TextField;
+import haxe.ui.containers.Grid;
+import haxe.ui.containers.ScrollView;
 import haxe.ui.containers.dialogs.CollapsibleDialog;
 import haxe.ui.containers.menus.MenuBar;
 import haxe.ui.containers.menus.MenuCheckBox;
 import haxe.ui.containers.menus.MenuItem;
+import haxe.ui.core.Component;
 import haxe.ui.core.Screen;
 import haxe.ui.events.MouseEvent;
 import haxe.ui.events.UIEvent;
+import haxe.ui.util.Variant;
 #if mobile
 import funkin.util.TouchUtil;
 #end
@@ -45,19 +52,20 @@ import funkin.util.TouchUtil;
  *
  * This keeps the parts of it that are not about input — the character
  * loading, the animation playback, the offsets living on the sprite — and
- * changes how you reach them. The panel is built the same way the other
- * editors build theirs, from a layout in the assets, so it belongs to the
- * same set; what differs is that the controls are sized for a finger and the
- * character is placed by dragging it rather than by typing numbers.
+ * changes how you reach them. The panels are built the same way the other
+ * editors build theirs, from layouts in the assets, so they belong to the
+ * same set; what differs is that the controls are sized for a finger, the
+ * character is placed by dragging it rather than by typing numbers, and the
+ * file is split across a window per topic rather than one long column.
  */
 class CharacterEditorState extends MusicBeatState
 {
   /**
-   * Where a saved character goes.
+   * Where an imported sprite sheet goes.
    *
-   * Writing a mod rather than over the game's own files means an edit is live
-   * the next time the game loads, and the original is still there if the edit
-   * was a mistake.
+   * A character has to be able to find its own sheet through the game's asset
+   * system, and the only way in is a mod, so a sheet lands in one whether or
+   * not the character built from it is ever written anywhere.
    */
   static final MOD_ROOT:String = 'mods';
 
@@ -65,21 +73,8 @@ class CharacterEditorState extends MusicBeatState
 
   /**
    * Where a sprite sheet has to be for the editor to find it.
-   *
-   * Inside the mod the editor writes to, so a character made here and the
-   * sheet it was made from stay together, and so the folder is one the app
-   * can be sure it may write to.
    */
   static final SHEET_DIR:String = 'mods/editor/images/characters';
-
-  /**
-   * Which character to come up on after the editor has been rebuilt.
-   *
-   * Picking up a file that was not there when the game started means
-   * reloading the assets, and that takes the editor with it, so the one
-   * thing worth keeping is carried across by hand.
-   */
-  static var pendingCharacterId:Null<String> = null;
 
   /**
    * The stage a character is shown on. The one the game opens on, so what you
@@ -92,12 +87,67 @@ class CharacterEditorState extends MusicBeatState
   static final ZOOM_MAX:Float = 4.0;
 
   /**
+   * How far the panels and the menu bar's contents sit in from the edge.
+   *
+   * Phone screens are rounded, so the corner pixels are not there to be
+   * tapped even though the layout thinks they are. Anything you have to hit
+   * starts far enough in to clear the curve. The menu bar carries the same
+   * number as padding in its own layout, since it spans the screen.
+   */
+  static final SCREEN_INSET:Float = 30;
+
+  /**
+   * How far a finger may wander and still count as a tap.
+   */
+  static final TAP_SLOP:Float = 14;
+
+  /**
+   * How big a face is in the character picker.
+   *
+   * The chart editor uses 70, and this is the same picker with more room to
+   * hit, since here it is a thumb rather than a mouse pointer.
+   */
+  static final TILE:Float = 88;
+
+  /**
+   * What an open dropdown looks like.
+   *
+   * On a phone HaxeUI opens a dropdown as a modal in the middle of the
+   * screen, which is the right shape for a thumb, but its stylesheet sizes
+   * that modal at three quarters of the screen whatever is in it. This sizes
+   * the modal to the control it belongs to and gives the rows enough height
+   * to hit.
+   */
+  static final POPUP_STYLE:String = '
+    .dropdown-popup:mobile { width: 350px; }
+    .dropdown-popup .listview .itemrenderer { padding: 12px 10px; }
+  ';
+
+  /**
+   * Which character to come up on after the editor has been rebuilt.
+   *
+   * Picking up a sheet that was not there when the game started means
+   * reloading the assets, and that takes the editor with it, so the things
+   * worth keeping are carried across by hand.
+   */
+  static var pendingCharacterId:Null<String> = null;
+
+  /**
+   * A character built from a sheet but not written anywhere.
+   *
+   * Importing loads a character in to be worked on; it is File > Export that
+   * decides where it ends up, and until then it lives here and in the
+   * registry's cache, which the reload also empties.
+   */
+  static var pendingCharacterJson:Null<String> = null;
+
+  /**
    * The view the character sits in, which moves and zooms under two fingers.
    */
   var camStage:FunkinCamera;
 
   /**
-   * Where the panel lives, so it stays put while the view moves.
+   * Where the panels live, so they stay put while the view moves.
    */
   var camUI:FunkinCamera;
 
@@ -127,25 +177,51 @@ class CharacterEditorState extends MusicBeatState
 
   var animationName:String = '';
 
-  // -- the panel ----------------------------------------------------------
-
-  var toolbox:Null<CollapsibleDialog> = null;
+  /**
+   * The green behind an empty editor.
+   *
+   * Only up while there is no stage: a character standing on one should look
+   * the way it will in the game, and the game has nothing behind its stages.
+   */
+  var bg:Null<FlxSprite> = null;
 
   var menubar:Null<MenuBar> = null;
 
-  var positionDropdown:Null<DropDown> = null;
+  /**
+   * How far down a window has to start to clear the menu bar.
+   */
+  var menubarHeight:Float = 0;
 
-  var characterDropdown:Null<DropDown> = null;
+  // -- the windows --------------------------------------------------------
+
+  var windows:Map<String, EditorWindow> = new Map<String, EditorWindow>();
+
+  /**
+   * The rows under Window, by the window each one stands for, so that a
+   * window closed by its own button can put its own tick down.
+   */
+  var windowToggles:Map<String, MenuCheckBox> = new Map<String, MenuCheckBox>();
+
+  /**
+   * Everything that puts a value from the character file onto a control.
+   *
+   * One per control, added as the control is bound, so that loading a
+   * character is a matter of running the lot rather than of remembering to
+   * add a line here for every field added over there.
+   */
+  var refreshers:Array<Void->Void> = [];
+
+  // -- the controls a window does not own -------------------------------
+
+  var characterGridScroll:Null<ScrollView> = null;
+  var characterNameLabel:Null<Label> = null;
+  var positionDropdown:Null<DropDown> = null;
   var animationDropdown:Null<DropDown> = null;
   var animationWarning:Null<Label> = null;
   var offsetLabel:Null<Label> = null;
+  var animOffsetX:Null<NumberStepper> = null;
+  var animOffsetY:Null<NumberStepper> = null;
   var statusLabel:Null<Label> = null;
-  var scaleStepper:Null<NumberStepper> = null;
-  var flipXCheck:Null<CheckBox> = null;
-  var singTimeStepper:Null<NumberStepper> = null;
-  var danceEveryStepper:Null<NumberStepper> = null;
-  var cameraXStepper:Null<NumberStepper> = null;
-  var cameraYStepper:Null<NumberStepper> = null;
 
   // -- making a character out of a sprite sheet ---------------------------
 
@@ -161,10 +237,20 @@ class CharacterEditorState extends MusicBeatState
   var sheetNames:Array<String> = [];
 
   /**
-   * Set while the panel is being filled in from a character, so that changing
-   * a control does not read as the person having changed it.
+   * Set while the panels are being filled in from a character, so that
+   * changing a control does not read as the person having changed it.
    */
   var populating:Bool = false;
+
+  /**
+   * Something to do once the toolkit has finished with the click that asked
+   * for it.
+   *
+   * Leaving the editor and reloading the assets both tear down every
+   * component HaxeUI is holding, and a menu item asking for either of them
+   * is asking from inside a pass that is still walking those components.
+   */
+  var afterThisFrame:Null<Void->Void> = null;
 
   // -- gesture state ------------------------------------------------------
 
@@ -190,76 +276,6 @@ class CharacterEditorState extends MusicBeatState
   var pressedAt:FlxPoint = new FlxPoint();
 
   var pressWasDrag:Bool = false;
-
-  /**
-   * How far a finger may wander and still count as a tap.
-   */
-  static final TAP_SLOP:Float = 14;
-
-  /**
-   * How far the panel and the menu bar's contents sit in from the edge.
-   *
-   * Phone screens are rounded, so the corner pixels are not there to be
-   * tapped even though the layout thinks they are. Anything you have to hit
-   * starts far enough in to clear the curve. The menu bar carries the same
-   * number as padding in its own layout, since it spans the screen.
-   */
-  static final SCREEN_INSET:Float = 30;
-
-  /**
-   * What an open dropdown looks like.
-   *
-   * On a phone HaxeUI opens a dropdown as a modal in the middle of the
-   * screen, which is the right shape for a thumb, but its stylesheet sizes
-   * that modal at three quarters of the screen regardless of what is in it.
-   * A list of three stage slots then arrives as a panel the width of the
-   * phone with three short rows up one side of it. This sizes the modal to
-   * the control it belongs to and gives the rows enough height to hit.
-   */
-  static final POPUP_STYLE:String = '
-    .dropdown-popup:mobile { width: 300px; }
-    .dropdown-popup .listview .itemrenderer { padding: 12px 10px; }
-  ';
-
-  /**
-   * The green behind an empty editor.
-   *
-   * Only up while there is no stage: a character standing on one should look
-   * the way it will in the game, and the game has nothing behind its stages.
-   */
-  var bg:Null<FlxSprite> = null;
-
-  /**
-   * How far down the panel has to start to clear the menu bar.
-   */
-  var menubarHeight:Float = 0;
-
-  /**
-   * Whether the panel is up, since a hidden dialog is one that has been taken
-   * off the screen rather than one carrying a flag.
-   */
-  var toolboxShown:Bool = false;
-
-  var newCharacterShown:Bool = false;
-
-  /**
-   * The rows under Windows, by the window each one stands for, so that a
-   * window closed by its own button can put its own tick down.
-   */
-  var windowToggles:Map<String, MenuCheckBox> = new Map<String, MenuCheckBox>();
-
-  /**
-   * Something to do once the toolkit has finished with the click that asked
-   * for it.
-   *
-   * Leaving the editor and reloading the assets both tear down every
-   * component HaxeUI is holding, and a menu item asking for either of them
-   * is asking from inside a pass that is still walking those components. It
-   * is the same mistake as writing to a dropdown from its own change
-   * handler, one step further along: by the time anything notices, the
-   * thing it was in the middle of is gone.
-   */
-  var afterThisFrame:Null<Void->Void> = null;
 
   function later(action:Void->Void):Void
   {
@@ -289,16 +305,20 @@ class CharacterEditorState extends MusicBeatState
     // menu clears what it adds.
     haxe.ui.Toolkit.styleSheet.parse(POPUP_STYLE, 'user');
 
-    characterIds = CharacterDataParser.listCharacterIds();
-    characterIds.sort(SortUtil.alphabetically);
-
     // Made now rather than when it is first needed, so that the folder is
     // there to be found by someone plugging the phone into a computer.
     makeModDirs();
 
+    // A character imported just before the reload that brought us back here
+    // has no file anywhere; putting it in the cache is what makes it real
+    // enough to be built, played and eventually exported.
+    adoptPendingCharacter();
+
+    characterIds = CharacterDataParser.listCharacterIds();
+    characterIds.sort(SortUtil.alphabetically);
+
     buildMenubar();
-    buildToolbox();
-    buildNewCharacterDialog();
+    buildWindows();
 
     var opening:Null<String> = pendingCharacterId;
     pendingCharacterId = null;
@@ -315,6 +335,20 @@ class CharacterEditorState extends MusicBeatState
     // handling measures taps against.
     addBackButton(FlxG.width - 230, FlxG.height - 200, FlxColor.WHITE, goBack, 1.0);
     #end
+  }
+
+  /**
+   * Take on a character that was built from a sheet and never written down.
+   */
+  function adoptPendingCharacter():Void
+  {
+    if (pendingCharacterJson == null || pendingCharacterId == null) return;
+
+    var adopted:Null<CharacterData> = CharacterDataParser.parseCharacterDataString(pendingCharacterId, pendingCharacterJson);
+
+    if (adopted != null) CharacterDataParser.registerCharacterData(pendingCharacterId, adopted);
+
+    pendingCharacterJson = null;
   }
 
   function buildMenubar():Void
@@ -334,21 +368,18 @@ class CharacterEditorState extends MusicBeatState
     menubar.validateNow();
     menubarHeight = menubar.height > 0 ? menubar.height : 56;
 
-    wireMenuItem('menuNew', openNewCharacter);
+    wireMenuItem('menuNew', () -> showWindow('windowNewCharacter', true));
     wireMenuItem('menuImport', () -> {
-      openNewCharacter();
+      showWindow('windowNewCharacter', true);
       later(importSheet);
     });
-    wireMenuItem('menuSave', save);
+    wireMenuItem('menuExport', exportCharacter);
     wireMenuItem('menuReload', () -> loadCharacter(characterId, true));
     wireMenuItem('menuExit', () -> later(goBack));
     wireMenuItem('menuResetOffset', resetOffset);
     wireMenuItem('menuReplay', replayAnimation);
     wireMenuItem('menuResetCamera', lookAtCharacter);
     wireMenuItem('menuToggleStage', toggleStage);
-
-    wireWindowToggle('windowCharacter', showToolbox);
-    wireWindowToggle('windowNewCharacter', showNewCharacter);
   }
 
   function wireMenuItem(id:String, action:Void->Void):Void
@@ -359,13 +390,95 @@ class CharacterEditorState extends MusicBeatState
     if (item != null) item.onClick = _ -> action();
   }
 
+  // -- windows ------------------------------------------------------------
+
   /**
-   * Tie a row under Windows to the window it names.
+   * Build every window and give each one a row under Window.
    *
-   * Ticking it opens that window, unticking it puts it away, and closing the
-   * window by its own button unticks the row.
+   * Laid out left to right in the order they are made, wrapping when the row
+   * runs out of screen, so a window added later lands somewhere sensible
+   * without anyone having to pick coordinates for it.
    */
-  function wireWindowToggle(id:String, show:Bool->Void):Void
+  function buildWindows():Void
+  {
+    var left:Float = SCREEN_INSET;
+    var top:Float = menubarHeight + 12;
+
+    function place(dialog:Null<CollapsibleDialog>):Void
+    {
+      if (dialog == null) return;
+
+      if (left + dialog.width > FlxG.width - SCREEN_INSET && left > SCREEN_INSET)
+      {
+        left = SCREEN_INSET;
+      }
+
+      dialog.left = left;
+      dialog.top = top;
+
+      left += dialog.width + 12;
+    }
+
+    var select = openWindow('windowCharacter', 'ui/character-editor/character-select', place);
+    var animation = openWindow('windowAnimation', 'ui/character-editor/animation-view', place);
+    var characterData = openWindow('windowCharacterData', 'ui/character-editor/character-data-view', place);
+    var healthIcon = openWindow('windowHealthIcon', 'ui/character-editor/health-icon-view', place);
+    var newCharacter = openWindow('windowNewCharacter', 'ui/character-editor/new-character-view', place);
+
+    buildCharacterSelect(select);
+    buildAnimationWindow(animation);
+    buildCharacterDataWindow(characterData);
+    buildHealthIconWindow(healthIcon);
+    buildNewCharacterWindow(newCharacter);
+
+    newCharacterDialog = newCharacter;
+
+    // Whichever ones the menu says start open. Everything is wired by now, so
+    // a window coming up does not find half of itself missing.
+    for (id in windows.keys())
+      showWindow(id, tickedAtBuild(id));
+  }
+
+  /**
+   * Whether a window's row was ticked in the layout, which is how the menu
+   * bar says which windows the editor opens on.
+   */
+  function tickedAtBuild(id:String):Bool
+  {
+    var toggle = windowToggles.get(id);
+    return toggle != null && toggle.selected;
+  }
+
+  /**
+   * Load a window's layout, remember it, and tie it to its row.
+   */
+  function openWindow(id:String, layout:String, place:Null<CollapsibleDialog>->Void):Null<CollapsibleDialog>
+  {
+    var dialog:Null<CollapsibleDialog> = cast RuntimeComponentBuilder.fromAsset(Paths.xml(layout));
+
+    if (dialog == null) return null;
+
+    // Closing a dialog destroys it unless it is told not to, and these have
+    // to survive being put away and brought back.
+    dialog.destroyOnClose = false;
+
+    // Laid out but not shown. Showing a dialog queues a recentre and a
+    // visibility flip a frame or two out, so a window that was shown here
+    // just to be measured would put itself back up after being hidden.
+    dialog.validateNow();
+    place(dialog);
+
+    windows.set(id, {dialog: dialog, shown: false, left: dialog.left, top: dialog.top});
+
+    wireWindowToggle(id);
+
+    return dialog;
+  }
+
+  /**
+   * Tie a row under Window to the window it names.
+   */
+  function wireWindowToggle(id:String):Void
   {
     if (menubar == null) return;
 
@@ -373,20 +486,638 @@ class CharacterEditorState extends MusicBeatState
     if (item == null) return;
 
     windowToggles.set(id, item);
-    item.registerEvent(UIEvent.CHANGE, function(_) show(item.selected));
+    item.registerEvent(UIEvent.CHANGE, function(_) showWindow(id, item.selected));
   }
 
   /**
-   * Put a row's tick where the window actually is.
+   * Put a window up or away.
    *
-   * Setting it reports a change of its own, so the thing that change asks
-   * for has to be happy being asked for something already true — the same
-   * rule the dropdowns follow.
+   * Takes the state it wants rather than flipping what is there, because
+   * setting a row's tick reports a change of its own and a window that
+   * toggled on being told what it already is would never settle.
    */
-  function markWindowToggle(id:String, open:Bool):Void
+  function showWindow(id:String, on:Bool):Void
   {
-    var item = windowToggles.get(id);
-    if (item != null && item.selected != open) item.selected = open;
+    var window = windows.get(id);
+    if (window == null || window.shown == on) return;
+
+    window.shown = on;
+
+    if (on)
+    {
+      window.dialog.showDialog(false);
+      window.dialog.cameras = [camUI];
+      window.dialog.left = window.left;
+      window.dialog.top = window.top;
+    }
+    else
+    {
+      window.dialog.hide();
+    }
+
+    var toggle = windowToggles.get(id);
+    if (toggle != null && toggle.selected != on) toggle.selected = on;
+  }
+
+  // -- tying a control to a field in the file -----------------------------
+
+  /**
+   * Bind a stepper to a number in the character file.
+   *
+   * The read half is kept so that loading a character can push every value
+   * back onto its control at once; the write half ignores the change it
+   * causes doing that.
+   */
+  function bindStepper(owner:Null<Component>, id:String, read:Void->Float, write:Float->Void):Void
+  {
+    if (owner == null) return;
+
+    var stepper = owner.findComponent(id, NumberStepper);
+    if (stepper == null) return;
+
+    refreshers.push(function() stepper.pos = read());
+
+    stepper.onChange = function(_) {
+      if (populating || data == null) return;
+      write(stepper.pos);
+    };
+  }
+
+  function bindCheck(owner:Null<Component>, id:String, read:Void->Bool, write:Bool->Void):Void
+  {
+    if (owner == null) return;
+
+    var check = owner.findComponent(id, CheckBox);
+    if (check == null) return;
+
+    refreshers.push(function() check.selected = read());
+
+    check.onChange = function(_) {
+      if (populating || data == null) return;
+      write(check.selected);
+    };
+  }
+
+  function bindField(owner:Null<Component>, id:String, read:Void->String, write:String->Void):Void
+  {
+    if (owner == null) return;
+
+    var field = owner.findComponent(id, TextField);
+    if (field == null) return;
+
+    refreshers.push(function() field.text = read());
+
+    field.onChange = function(_) {
+      if (populating || data == null) return;
+      write(field.text ?? '');
+    };
+  }
+
+  function bindLabel(owner:Null<Component>, id:String, read:Void->String):Void
+  {
+    if (owner == null) return;
+
+    var label = owner.findComponent(id, Label);
+    if (label == null) return;
+
+    refreshers.push(function() label.text = read());
+  }
+
+  function bindButton(owner:Null<Component>, id:String, action:Void->Void):Void
+  {
+    if (owner == null) return;
+
+    var button = owner.findComponent(id, Button);
+    if (button != null) button.onClick = function(_) action();
+  }
+
+  /**
+   * Put every value in the file back onto the control that shows it.
+   */
+  function refreshWindows():Void
+  {
+    if (data == null) return;
+
+    populating = true;
+    for (refresh in refreshers)
+      refresh();
+    populating = false;
+
+    refreshOffsetLabel();
+  }
+
+  /**
+   * The health icon block, made if the file does not have one.
+   */
+  function healthIcon():HealthIconData
+  {
+    if (data == null) return {id: null, shouldBop: true, scale: 1.0, flipX: false, isPixel: false, offsets: [0, 25]};
+
+    if (data.healthIcon == null)
+    {
+      data.healthIcon = {id: null, shouldBop: true, scale: 1.0, flipX: false, isPixel: false, offsets: [0, 25]};
+    }
+
+    return data.healthIcon;
+  }
+
+  /**
+   * The entry in the file for the animation being looked at.
+   */
+  function currentAnimation():Null<AnimationData>
+  {
+    if (data == null || animationName == '') return null;
+
+    for (animation in data.animations)
+      if (animation.name == animationName) return animation;
+
+    return null;
+  }
+
+  /**
+   * A pair of numbers from the file, either of which may be missing.
+   */
+  static function pairValue(pair:Null<Array<Float>>, index:Int):Float
+  {
+    if (pair == null || index >= pair.length) return 0;
+    return pair[index];
+  }
+
+  // -- the windows themselves ---------------------------------------------
+
+  function buildCharacterSelect(dialog:Null<CollapsibleDialog>):Void
+  {
+    if (dialog == null) return;
+
+    characterGridScroll = dialog.findComponent('characterGridScroll', ScrollView);
+    characterNameLabel = dialog.findComponent('characterNameLabel', Label);
+    positionDropdown = dialog.findComponent('positionDropdown', DropDown);
+
+    if (positionDropdown != null)
+    {
+      positionDropdown.dropdownSize = 6;
+      positionDropdown.onChange = function(event:UIEvent) {
+        if (populating) return;
+
+        var picked:CharacterType = switch (event.data?.text)
+        {
+          case 'dad': DAD;
+          case 'gf': GF;
+          default: BF;
+        };
+
+        if (picked == characterType) return;
+
+        characterType = picked;
+
+        // The same character, but standing somewhere else, so this one is
+        // worth doing again.
+        loadCharacter(characterId, true);
+      };
+    }
+
+    buildCharacterGrid();
+  }
+
+  /**
+   * A face per character in the registry.
+   *
+   * Built here rather than in the layout because how many there are depends
+   * on what mods are installed, and rebuilt when that changes.
+   */
+  function buildCharacterGrid():Void
+  {
+    if (characterGridScroll == null) return;
+
+    characterGridScroll.removeAllComponents();
+
+    var grid = new Grid();
+    grid.columns = 4;
+    grid.percentWidth = 100;
+
+    for (id in characterIds)
+    {
+      var entry:Null<CharacterData> = CharacterDataParser.fetchCharacterData(id);
+
+      var tile = new Button();
+      tile.width = TILE;
+      tile.height = TILE;
+      tile.padding = 8;
+      tile.iconPosition = 'top';
+
+      var icon = CharacterDataParser.getCharPixelIconAsset(id);
+      if (icon != null) tile.icon = Variant.fromImageData(icon);
+
+      tile.text = shortName(entry?.name ?? id);
+      tile.onClick = function(_) loadCharacter(id);
+
+      grid.addComponent(tile);
+    }
+
+    characterGridScroll.addComponent(grid);
+  }
+
+  /**
+   * A name that fits on a tile.
+   */
+  static function shortName(name:String):String
+  {
+    var LIMIT:Int = 8;
+    return name.length > LIMIT ? '${name.substr(0, LIMIT)}.' : name;
+  }
+
+  function buildCharacterDataWindow(dialog:Null<CollapsibleDialog>):Void
+  {
+    if (dialog == null) return;
+
+    bindField(dialog, 'nameField', () -> data?.name ?? '', function(value) data.name = value);
+
+    bindLabel(dialog, 'renderTypeLabel', () -> data == null ? '' : 'Drawn as: ${Std.string(data.renderType)}');
+    bindLabel(dialog, 'assetPathLabel', () -> data == null ? '' : 'Sheet: ${data.assetPath}');
+
+    bindStepper(dialog, 'scaleStepper', () -> data?.scale ?? 1.0, function(value) {
+      data.scale = value;
+      if (character != null) character.setScale(value);
+    });
+
+    bindCheck(dialog, 'flipXCheck', () -> data?.flipX ?? false, function(value) {
+      data.flipX = value;
+      applyFlipX();
+    });
+
+    bindCheck(dialog, 'isPixelCheck', () -> data?.isPixel ?? false, function(value) {
+      data.isPixel = value;
+      say('Pixel art takes effect on reload.');
+    });
+
+    bindStepper(dialog, 'singTimeStepper', () -> data?.singTime ?? 8.0, function(value) data.singTime = value);
+    bindStepper(dialog, 'danceEveryStepper', () -> data?.danceEvery ?? 1.0, function(value) data.danceEvery = value);
+
+    bindStepper(dialog, 'offsetXStepper', () -> pairValue(data?.offsets, 0), function(value) {
+      data.offsets = [value, pairValue(data.offsets, 1)];
+      if (character != null) character.globalOffsets = data.offsets;
+    });
+    bindStepper(dialog, 'offsetYStepper', () -> pairValue(data?.offsets, 1), function(value) {
+      data.offsets = [pairValue(data.offsets, 0), value];
+      if (character != null) character.globalOffsets = data.offsets;
+    });
+
+    bindStepper(dialog, 'cameraXStepper', () -> pairValue(data?.cameraOffsets, 0),
+      function(value) data.cameraOffsets = [value, pairValue(data.cameraOffsets, 1)]);
+    bindStepper(dialog, 'cameraYStepper', () -> pairValue(data?.cameraOffsets, 1),
+      function(value) data.cameraOffsets = [pairValue(data.cameraOffsets, 0), value]);
+
+    bindField(dialog, 'startingAnimationField', () -> data?.startingAnimation ?? 'idle',
+      function(value) data.startingAnimation = value);
+  }
+
+  function buildHealthIconWindow(dialog:Null<CollapsibleDialog>):Void
+  {
+    if (dialog == null) return;
+
+    bindField(dialog, 'iconIdField', () -> healthIcon().id ?? '', function(value) healthIcon().id = value == '' ? null : value);
+
+    bindStepper(dialog, 'iconScaleStepper', () -> healthIcon().scale ?? 1.0, function(value) healthIcon().scale = value);
+    bindCheck(dialog, 'iconBopCheck', () -> healthIcon().shouldBop ?? true, function(value) healthIcon().shouldBop = value);
+    bindCheck(dialog, 'iconFlipXCheck', () -> healthIcon().flipX ?? false, function(value) healthIcon().flipX = value);
+    bindCheck(dialog, 'iconPixelCheck', () -> healthIcon().isPixel ?? false, function(value) healthIcon().isPixel = value);
+
+    bindStepper(dialog, 'iconOffsetXStepper', () -> iconOffset(0), function(value) healthIcon().offsets = [value, iconOffset(1)]);
+    bindStepper(dialog, 'iconOffsetYStepper', () -> iconOffset(1), function(value) healthIcon().offsets = [iconOffset(0), value]);
+  }
+
+  function iconOffset(index:Int):Float
+  {
+    return pairValue(healthIcon().offsets, index);
+  }
+
+  function buildAnimationWindow(dialog:Null<CollapsibleDialog>):Void
+  {
+    if (dialog == null) return;
+
+    animOffsetX = dialog.findComponent('animOffsetXStepper', NumberStepper);
+    animOffsetY = dialog.findComponent('animOffsetYStepper', NumberStepper);
+
+    animationDropdown = dialog.findComponent('animationDropdown', DropDown);
+    animationWarning = dialog.findComponent('animationWarning', Label);
+    offsetLabel = dialog.findComponent('offsetLabel', Label);
+    statusLabel = dialog.findComponent('statusLabel', Label);
+
+    if (animationDropdown != null)
+    {
+      animationDropdown.dropdownSize = 6;
+      animationDropdown.onChange = function(event:UIEvent) {
+        var picked:Null<String> = event.data?.text;
+        if (populating || picked == null || picked == animationName) return;
+
+        playAnimation(picked);
+      };
+    }
+
+    bindStepper(dialog, 'animOffsetXStepper', () -> currentOffset()[0], function(value) setOffset(value, currentOffset()[1]));
+    bindStepper(dialog, 'animOffsetYStepper', () -> currentOffset()[1], function(value) setOffset(currentOffset()[0], value));
+
+    bindField(dialog, 'prefixField', () -> currentAnimation()?.prefix ?? '', function(value) {
+      var animation = currentAnimation();
+      if (animation == null) return;
+
+      animation.prefix = value;
+      say('The prefix takes effect on reload.');
+    });
+
+    bindStepper(dialog, 'frameRateStepper', () -> currentAnimation()?.frameRate ?? 24, function(value) {
+      var animation = currentAnimation();
+      if (animation != null) animation.frameRate = Std.int(value);
+    });
+
+    bindCheck(dialog, 'loopedCheck', () -> currentAnimation()?.looped ?? false, function(value) {
+      var animation = currentAnimation();
+      if (animation != null) animation.looped = value;
+    });
+
+    bindCheck(dialog, 'animFlipXCheck', () -> currentAnimation()?.flipX ?? false, function(value) {
+      var animation = currentAnimation();
+      if (animation != null) animation.flipX = value;
+    });
+
+    bindCheck(dialog, 'animFlipYCheck', () -> currentAnimation()?.flipY ?? false, function(value) {
+      var animation = currentAnimation();
+      if (animation != null) animation.flipY = value;
+    });
+
+    bindButton(dialog, 'resetOffsetButton', resetOffset);
+    bindButton(dialog, 'replayButton', replayAnimation);
+  }
+
+  function buildNewCharacterWindow(dialog:Null<CollapsibleDialog>):Void
+  {
+    if (dialog == null) return;
+
+    sheetDropdown = dialog.findComponent('sheetDropdown', DropDown);
+    sheetPathLabel = dialog.findComponent('sheetPathLabel', Label);
+    sheetSummaryLabel = dialog.findComponent('sheetSummaryLabel', Label);
+    newCharacterStatus = dialog.findComponent('newCharacterStatus', Label);
+
+    if (sheetDropdown != null)
+    {
+      sheetDropdown.dropdownSize = 6;
+      sheetDropdown.onChange = function(event:UIEvent) {
+        if (populating) return;
+        describeSheet();
+      };
+    }
+
+    bindButton(dialog, 'rescanButton', rescanSheets);
+
+    // Asking the system for a file puts the app in the background and brings
+    // it back, which is not a thing to start in the middle of handling the
+    // press that asked for it.
+    bindButton(dialog, 'importButton', () -> later(importSheet));
+    bindButton(dialog, 'createButton', createFromSheet);
+    bindButton(dialog, 'closeButton', () -> showWindow('windowNewCharacter', false));
+
+    if (sheetPathLabel != null) sheetPathLabel.text = sheetFolder();
+  }
+
+  // -- the character ------------------------------------------------------
+
+  /**
+   * @param force Load it again even if it is the one already up, for when
+   *   something other than which character it is has changed.
+   */
+  function loadCharacter(id:Null<String>, force:Bool = false):Void
+  {
+    if (id == null || id == '')
+    {
+      say('No character to load.');
+      return;
+    }
+
+    // Rebuilding the character and the stage is not cheap, and being asked
+    // for the one already standing there is a thing that happens: a control
+    // reporting the value it was just given reads no differently from a
+    // person choosing it.
+    if (!force && id == characterId && character != null) return;
+
+    // The stage owns what it was given and destroys it as it goes, so a
+    // character standing on one is not the editor's to take down. One with
+    // no stage under it is.
+    if (stage != null)
+    {
+      unloadStage();
+    }
+    else if (character != null)
+    {
+      remove(character);
+      character.destroy();
+    }
+
+    character = null;
+
+    characterId = id;
+    data = CharacterDataParser.fetchCharacterData(id);
+
+    if (data == null)
+    {
+      say('Could not load $id.');
+      return;
+    }
+
+    // The stage first, while there is no character for taking it down to
+    // throw away by accident.
+    loadStage();
+
+    character = CharacterDataParser.fetchCharacter(id, true);
+
+    if (character == null)
+    {
+      say('Could not build $id.');
+      return;
+    }
+
+    character.cameras = [camStage];
+
+    if (stage != null)
+    {
+      stage.addCharacter(character, characterType);
+    }
+    else
+    {
+      // No stage to stand on, so at least put it where it can be seen.
+      character.screenCenter();
+      add(character);
+    }
+
+    applyFlipX(true);
+
+    animationNames = [for (animation in data.animations) animation.name];
+
+    lookAtCharacter();
+    refreshBackdrop();
+
+    if (characterNameLabel != null) characterNameLabel.text = '${data.name} [$characterId]';
+
+    fillAnimationDropdown();
+
+    if (animationNames.length > 0)
+    {
+      // Named on the control as well as played, or the dropdown sits blank
+      // over an animation that is running.
+      selectInDropdown(animationDropdown, 0);
+      playAnimation(animationNames[0]);
+    }
+
+    refreshWindows();
+
+    say('Loaded $id.');
+  }
+
+  function replayAnimation():Void
+  {
+    if (character == null || animationName == '') return;
+
+    character.playAnimation(animationName, true);
+  }
+
+  function fillAnimationDropdown():Void
+  {
+    if (animationDropdown == null) return;
+
+    populating = true;
+    animationDropdown.dataSource.clear();
+
+    for (name in animationNames)
+      animationDropdown.dataSource.add({text: name});
+
+    populating = false;
+  }
+
+  /**
+   * Show a row as the chosen one.
+   *
+   * Left until the next frame on purpose. Most of the calls to this come,
+   * one way or another, from a dropdown's own change handler, which HaxeUI
+   * runs in the middle of validating that dropdown; writing to it there is
+   * changing a component while it is being validated, which the toolkit
+   * catches as a possible infinite loop and turns into a crash.
+   */
+  function selectInDropdown(dropdown:Null<DropDown>, index:Int):Void
+  {
+    if (dropdown == null || index < 0) return;
+
+    haxe.ui.Toolkit.callLater(function() {
+      // The editor may be long gone by now: importing a sheet reloads the
+      // assets, which rebuilds the state, and anything left over from the
+      // old one is pointing at components that were thrown away with it.
+      if (FlxG.state != this) return;
+
+      populating = true;
+
+      // A dropdown whose rows were swapped out under it keeps the index it
+      // had and decides nothing has changed, and comes up blank. Standing it
+      // down first makes the assignment land.
+      if (dropdown.selectedIndex == index) dropdown.selectedIndex = -1;
+
+      dropdown.selectedIndex = index;
+
+      populating = false;
+    });
+  }
+
+  function playAnimation(name:Null<String>):Void
+  {
+    if (character == null || name == null || name == '') return;
+
+    animationName = name;
+    character.playAnimation(name, true);
+
+    // An animation whose prefix is not in the sprite sheet plays nothing, and
+    // that is the most common thing wrong with a character file, so say so
+    // rather than leaving it to be discovered.
+    if (animationWarning != null)
+    {
+      var missing = !character.hasAnimation(name);
+      animationWarning.text = missing ? 'No frames for this prefix' : '';
+    }
+
+    // The animation window is showing one animation's worth of the file, and
+    // which animation that is has just changed.
+    refreshWindows();
+  }
+
+  function resetOffset():Void
+  {
+    setOffset(0, 0);
+    say('Offset cleared for $animationName.');
+  }
+
+  function setOffset(x:Float, y:Float):Void
+  {
+    if (character == null || animationName == '') return;
+
+    // Both: the map is what gets saved, the field is what the sprite draws
+    // itself with.
+    character.animOffsets = [x, y];
+    character.setAnimationOffsets(animationName, x, y);
+
+    refreshOffsetLabel();
+  }
+
+  function currentOffset():Array<Float>
+  {
+    if (character == null) return [0, 0];
+
+    var stored = character.animationOffsets.get(animationName);
+    return stored == null ? [0, 0] : stored;
+  }
+
+  /**
+   * Show where the current animation sits.
+   *
+   * Its own function rather than part of the general refresh because it runs
+   * while a finger is dragging the character, many times a second.
+   */
+  function refreshOffsetLabel():Void
+  {
+    var offset = currentOffset();
+
+    if (offsetLabel != null) offsetLabel.text = '${Std.int(offset[0])}, ${Std.int(offset[1])}';
+
+    populating = true;
+
+    if (animOffsetX != null) animOffsetX.pos = offset[0];
+    if (animOffsetY != null) animOffsetY.pos = offset[1];
+
+    populating = false;
+  }
+
+  /**
+   * Point the character the way its file says to.
+   *
+   * A character standing in the boyfriend slot is drawn mirrored: the sheets
+   * all face the way the opponent stands, and `flipX` in the file is written
+   * against that. The stage applies the flip when it takes a character, so
+   * setting the sprite straight from the file cancels it out.
+   *
+   * @param fromData Take the value from the file rather than from whatever
+   *   the control last said, for when a character has just been loaded.
+   */
+  function applyFlipX(fromData:Bool = false):Void
+  {
+    if (data == null) return;
+
+    var flipped:Bool = data.flipX ?? false;
+
+    // Mirrored for boyfriend, but only once it is actually on a stage; on its
+    // own the character wears the file's value as it is.
+    if (stage != null && characterType == BF) flipped = !flipped;
+
+    if (character != null) character.flipX = flipped;
+  }
+
+  function say(message:String):Void
+  {
+    if (statusLabel != null) statusLabel.text = message;
   }
 
   function toggleStage():Void
@@ -423,194 +1154,104 @@ class CharacterEditorState extends MusicBeatState
     sprite.scrollFactor.set(0, 0);
   }
 
+  // -- exporting ----------------------------------------------------------
+
   /**
-   * Put the panel where it belongs.
+   * Hand the character file to the system to put somewhere.
    *
-   * `left` and `top` rather than `x` and `y`, because a dialog recentres
-   * itself a couple of frames after being shown and those are the two values
-   * it checks before deciding it knows better.
+   * Just the character's own JSON, and wherever the person says — the editor
+   * has a folder it writes sheets into because it has to be able to read them
+   * back, but a finished character is theirs to put where they want it.
    */
-  function placeToolbox():Void
+  function exportCharacter():Void
   {
-    if (toolbox == null) return;
+    if (data == null || character == null)
+    {
+      say('Nothing to export.');
+      return;
+    }
 
-    toolbox.left = SCREEN_INSET;
-    toolbox.top = menubarHeight + 12;
+    // The sprite has been carrying the offsets while they were dragged; put
+    // them back into the data before it is written.
+    for (animation in data.animations)
+    {
+      var offsets = character.animationOffsets.get(animation.name);
+      if (offsets != null) animation.offsets = [offsets[0], offsets[1]];
+    }
+
+    var json:String = haxe.Json.stringify(data, null, '  ');
+    var bytes = lime.utils.Bytes.fromBytes(haxe.io.Bytes.ofString(json));
+
+    say('Choose where to put $characterId.json...');
+
+    FileUtil.saveFile('Export $characterId.json', bytes, [FileUtil.FILE_FILTER_JSON], function(path:String) {
+      say('Exported $characterId.json.');
+    }, function() {
+      say('Export cancelled.');
+    }, '$characterId.json');
+  }
+  /**
+   * Build the stage fresh.
+   *
+   * Rebuilding rather than swapping the character out of the old one: a stage
+   * places a character when it is added, and taking one back off again is
+   * more of its business than an editor should be reaching into.
+   */
+  function loadStage():Void
+  {
+    unloadStage();
+
+    stage = StageRegistry.instance.fetchEntry(STAGE_ID);
+
+    if (stage == null) return;
+
+    stage.revive();
+    ScriptEventDispatcher.callEvent(stage, new ScriptEvent(CREATE, false));
+
+    stage.cameras = [camStage];
+    add(stage);
   }
 
-  function showToolbox(on:Bool):Void
+  /**
+   * Put the stage away.
+   *
+   * The registry hands out one stage and hands out the same one every time,
+   * so a stage that is merely dropped and fetched again is the same object
+   * with everything still on it — and building it once more builds a second
+   * set of props on top of the first, and a third, until the frame rate says
+   * so. Destroying it is what empties it, and takes whatever was standing on
+   * it along too.
+   */
+  function unloadStage():Void
   {
-    if (toolbox == null || on == toolboxShown) return;
+    if (stage == null) return;
 
-    toolboxShown = on;
+    ScriptEventDispatcher.callEvent(stage, new ScriptEvent(DESTROY, false));
+    remove(stage);
+    stage.kill();
+    stage = null;
 
-    if (on)
-    {
-      toolbox.showDialog(false);
-      toolbox.cameras = [camUI];
-      placeToolbox();
-    }
-    else
-    {
-      toolbox.hide();
-    }
-
-    markWindowToggle('windowCharacter', on);
+    // Destroyed along with the stage it was standing on.
+    character = null;
   }
 
-  function buildToolbox():Void
+  function lookAtCharacter():Void
   {
-    toolbox = cast RuntimeComponentBuilder.fromAsset(Paths.xml('ui/character-editor/character-editor-view'));
+    camStage.zoom = 0.7;
 
-    if (toolbox == null) return;
-
-    toolbox.closable = false;
-
-    // Closing a dialog destroys it unless it is told not to, and this one has
-    // to survive being hidden and shown again. Showing it is also what puts
-    // it on screen: adding it to the state as well would put it there twice,
-    // and hiding it would then only take one of them away.
-    toolbox.destroyOnClose = false;
-    toolbox.showDialog(false);
-    toolbox.cameras = [camUI];
-    placeToolbox();
-    toolboxShown = true;
-
-    characterDropdown = toolbox.findComponent('characterDropdown', DropDown);
-    animationDropdown = toolbox.findComponent('animationDropdown', DropDown);
-    animationWarning = toolbox.findComponent('animationWarning', Label);
-    offsetLabel = toolbox.findComponent('offsetLabel', Label);
-    statusLabel = toolbox.findComponent('statusLabel', Label);
-    scaleStepper = toolbox.findComponent('scaleStepper', NumberStepper);
-    flipXCheck = toolbox.findComponent('flipXCheck', CheckBox);
-    singTimeStepper = toolbox.findComponent('singTimeStepper', NumberStepper);
-    danceEveryStepper = toolbox.findComponent('danceEveryStepper', NumberStepper);
-    cameraXStepper = toolbox.findComponent('cameraXStepper', NumberStepper);
-    cameraYStepper = toolbox.findComponent('cameraYStepper', NumberStepper);
-
-    if (characterDropdown != null)
+    if (character == null)
     {
-      for (id in characterIds)
-        characterDropdown.dataSource.add({text: id});
-
-      // Nothing on being told what it already shows. `populating` is not
-      // enough on its own: a dropdown that has been opened once carries a
-      // list view underneath it, and setting the index goes through that
-      // list, which reports the change a frame later — by which time the
-      // flag has been put down again. Left to itself that is a loop, since
-      // loading a character names the row it came from.
-      characterDropdown.onChange = function(event:UIEvent) {
-        var picked:Null<String> = event.data?.text;
-        if (populating || picked == null || picked == characterId) return;
-
-        loadCharacter(picked);
-      };
+      camStage.scroll.set(0, 0);
+      return;
     }
 
-    if (animationDropdown != null)
-    {
-      animationDropdown.onChange = function(event:UIEvent) {
-        var picked:Null<String> = event.data?.text;
-        if (populating || picked == null || picked == animationName) return;
-
-        playAnimation(picked);
-      };
-    }
-
-    positionDropdown = toolbox.findComponent('positionDropdown', DropDown);
-
-    if (positionDropdown != null)
-    {
-      positionDropdown.onChange = function(event:UIEvent) {
-        if (populating) return;
-
-        var picked:CharacterType = switch (event.data?.text)
-        {
-          case 'dad': DAD;
-          case 'gf': GF;
-          default: BF;
-        };
-
-        if (picked == characterType) return;
-
-        characterType = picked;
-
-        // The same character, but standing somewhere else, so this one is
-        // worth doing again.
-        loadCharacter(characterId, true);
-      };
-    }
-
-    // How many rows an open dropdown shows before it starts scrolling. The
-    // width it opens at is in POPUP_STYLE; this is the only part of it the
-    // component itself decides.
-    for (dropdown in [characterDropdown, animationDropdown, positionDropdown])
-    {
-      if (dropdown == null) continue;
-
-      dropdown.dropdownSize = 6;
-    }
-
-    var resetButton = toolbox.findComponent('resetOffsetButton', Button);
-    if (resetButton != null) resetButton.onClick = function(event:MouseEvent) resetOffset();
-
-    var saveButton = toolbox.findComponent('saveButton', Button);
-    if (saveButton != null) saveButton.onClick = function(event:MouseEvent) save();
-
-    if (scaleStepper != null) scaleStepper.onChange = function(event:UIEvent) applyScale();
-    if (flipXCheck != null) flipXCheck.onChange = function(event:UIEvent) applyFlipX();
-    if (singTimeStepper != null) singTimeStepper.onChange = function(event:UIEvent) applySingTime();
-    if (danceEveryStepper != null) danceEveryStepper.onChange = function(event:UIEvent) applyDanceEvery();
-    if (cameraXStepper != null) cameraXStepper.onChange = function(event:UIEvent) applyCameraOffsets();
-    if (cameraYStepper != null) cameraYStepper.onChange = function(event:UIEvent) applyCameraOffsets();
+    var middle = character.getMidpoint();
+    camStage.focusOn(middle);
+    middle.putWeak();
   }
 
-  // -- making a character out of a sprite sheet ----------------------------
 
-  function buildNewCharacterDialog():Void
-  {
-    newCharacterDialog = cast RuntimeComponentBuilder.fromAsset(Paths.xml('ui/character-editor/new-character-view'));
-
-    if (newCharacterDialog == null) return;
-
-    // Not shown yet — showing a dialog is what puts it on screen, and this
-    // one waits for the menu item. It does have to survive being closed,
-    // though, or the second time round it is a destroyed component.
-    newCharacterDialog.destroyOnClose = false;
-
-    sheetDropdown = newCharacterDialog.findComponent('sheetDropdown', DropDown);
-    sheetPathLabel = newCharacterDialog.findComponent('sheetPathLabel', Label);
-    sheetSummaryLabel = newCharacterDialog.findComponent('sheetSummaryLabel', Label);
-    newCharacterStatus = newCharacterDialog.findComponent('newCharacterStatus', Label);
-
-    if (sheetDropdown != null)
-    {
-      sheetDropdown.dropdownSize = 6;
-      sheetDropdown.onChange = function(event:UIEvent) {
-        if (populating) return;
-        describeSheet();
-      };
-    }
-
-    var rescanButton = newCharacterDialog.findComponent('rescanButton', Button);
-    if (rescanButton != null) rescanButton.onClick = function(event:MouseEvent) rescanSheets();
-
-    // Asking the system for a file puts the app in the background and brings
-    // it back, which is not a thing to start in the middle of handling the
-    // press that asked for it.
-    var importButton = newCharacterDialog.findComponent('importButton', Button);
-    if (importButton != null) importButton.onClick = function(event:MouseEvent) later(importSheet);
-
-    var createButton = newCharacterDialog.findComponent('createButton', Button);
-    if (createButton != null) createButton.onClick = function(event:MouseEvent) createFromSheet();
-
-    // Hidden rather than closed: a closed dialog is gone, and this one has to
-    // be able to come back the next time the menu item is used.
-    var closeButton = newCharacterDialog.findComponent('closeButton', Button);
-    if (closeButton != null) closeButton.onClick = function(event:MouseEvent) closeNewCharacter();
-
-    if (sheetPathLabel != null) sheetPathLabel.text = sheetFolder();
-  }
+  // -- making a character out of a sprite sheet ---------------------------
 
   /**
    * Where to tell someone to put a sheet.
@@ -634,52 +1275,8 @@ class CharacterEditorState extends MusicBeatState
     #end
   }
 
-  function openNewCharacter():Void
-  {
-    showNewCharacter(true);
-  }
-
-  function closeNewCharacter():Void
-  {
-    showNewCharacter(false);
-  }
-
-  function showNewCharacter(on:Bool):Void
-  {
-    if (newCharacterDialog == null || on == newCharacterShown) return;
-
-    newCharacterShown = on;
-
-    if (on)
-    {
-      makeModDirs();
-
-      newCharacterDialog.showDialog(false);
-      newCharacterDialog.cameras = [camUI];
-
-      // `left` and `top` rather than `x` and `y`: a dialog recentres itself
-      // a couple of frames after it is shown, and those are the two it
-      // checks before deciding it knows better.
-      newCharacterDialog.left = Math.max(SCREEN_INSET, (FlxG.width - newCharacterDialog.width) / 2);
-      newCharacterDialog.top = menubarHeight + 12;
-
-      rescanSheets();
-
-      if (sheetPathLabel != null) sheetPathLabel.text = sheetFolder();
-    }
-    else
-    {
-      newCharacterDialog.hide();
-    }
-
-    markWindowToggle('windowNewCharacter', on);
-  }
-
   /**
    * Look again at what is in the folder.
-   *
-   * Its own button as well as being done on opening, since the whole point
-   * of the folder is that things arrive in it while the app is running.
    */
   function rescanSheets():Void
   {
@@ -701,7 +1298,7 @@ class CharacterEditorState extends MusicBeatState
     if (sheetNames.length == 0)
     {
       if (sheetSummaryLabel != null) sheetSummaryLabel.text = '';
-      sayNew('Nothing here yet. A sheet is a .png and a .xml of the same name.');
+      sayNew('Nothing here yet. Import one, or drop a .png and a .xml of the same name into the folder above.');
       return;
     }
 
@@ -710,9 +1307,7 @@ class CharacterEditorState extends MusicBeatState
   }
 
   /**
-   * Say what is in the chosen sheet before anything is made from it, so a
-   * sheet the editor cannot read says so now rather than as a character with
-   * no animations.
+   * Say what is in the chosen sheet before anything is made from it.
    */
   function describeSheet():Void
   {
@@ -741,6 +1336,14 @@ class CharacterEditorState extends MusicBeatState
     return sheetNames[index];
   }
 
+  /**
+   * Build a character from a sheet and open it, without writing it anywhere.
+   *
+   * The sheet itself is already a file — it has to be, or nothing could load
+   * the image — but the character is only ever in memory until File > Export
+   * says where it goes. The reload is for the sheet: the game only knows
+   * about files it has looked at, and it looked before this one existed.
+   */
   function createFromSheet():Void
   {
     #if sys
@@ -761,32 +1364,21 @@ class CharacterEditorState extends MusicBeatState
     }
 
     var id:String = SpriteSheetImport.uniqueId(sheet, CharacterDataParser.listCharacterIds());
-    var json:String = SpriteSheetImport.buildCharacterJson(id, sheet, 'characters/$sheet', prefixes);
 
-    try
-    {
-      makeModDirs();
-      FileUtil.writeStringToPath('$MOD_ROOT/$MOD_ID/_polymod_meta.json', modMeta(), Force);
-      FileUtil.writeStringToPath('$MOD_ROOT/$MOD_ID/data/characters/$id.json', json, Force);
-    }
-    catch (error)
-    {
-      sayNew('Could not write $id.json: $error');
-      return;
-    }
-
-    // The game only knows about files it has looked at, and it looked before
-    // this one existed. Reloading takes the editor down with it, so which
-    // character to come back up on is left behind first — and the reload
-    // waits for the button press that asked for it to be over.
     pendingCharacterId = id;
-    sayNew('Made $id. Reloading...');
+    pendingCharacterJson = SpriteSheetImport.buildCharacterJson(id, sheet, 'characters/$sheet', prefixes);
+
+    sayNew('Loading $id...');
     later(reloadAssets);
     #else
     sayNew('Making characters needs a filesystem.');
     #end
   }
 
+  function sayNew(message:String):Void
+  {
+    if (newCharacterStatus != null) newCharacterStatus.text = message;
+  }
   /**
    * Bring a sheet in from wherever it is on the phone.
    *
@@ -939,354 +1531,6 @@ class CharacterEditorState extends MusicBeatState
     FileUtil.createDirIfNotExists('$root/images');
     FileUtil.createDirIfNotExists('$root/images/characters');
     #end
-  }
-
-  function sayNew(message:String):Void
-  {
-    if (newCharacterStatus != null) newCharacterStatus.text = message;
-  }
-
-  // -- the character ------------------------------------------------------
-
-  /**
-   * @param force Load it again even if it is the one already up, for when
-   *   something other than which character it is has changed.
-   */
-  function loadCharacter(id:Null<String>, force:Bool = false):Void
-  {
-    if (id == null || id == '')
-    {
-      say('No character to load.');
-      return;
-    }
-
-    // Rebuilding the character and the stage is not cheap, and being asked
-    // for the one already standing there is a thing that happens: a control
-    // reporting the value it was just given reads no differently from a
-    // person choosing it.
-    if (!force && id == characterId && character != null) return;
-
-    // The stage owns what it was given and destroys it as it goes, so a
-    // character standing on one is not the editor's to take down. One with
-    // no stage under it is.
-    if (stage != null)
-    {
-      unloadStage();
-    }
-    else if (character != null)
-    {
-      remove(character);
-      character.destroy();
-    }
-
-    character = null;
-
-    characterId = id;
-    data = CharacterDataParser.fetchCharacterData(id);
-
-    if (data == null)
-    {
-      say('Could not load $id.');
-      return;
-    }
-
-    // The stage first, while there is no character for taking it down to
-    // throw away by accident.
-    loadStage();
-
-    character = CharacterDataParser.fetchCharacter(id, true);
-
-    if (character == null)
-    {
-      say('Could not build $id.');
-      return;
-    }
-
-    character.cameras = [camStage];
-
-    if (stage != null)
-    {
-      stage.addCharacter(character, characterType);
-    }
-    else
-    {
-      // No stage to stand on, so at least put it where it can be seen.
-      character.screenCenter();
-      add(character);
-    }
-
-    applyFlipX(true);
-
-    animationNames = [for (animation in data.animations) animation.name];
-
-    lookAtCharacter();
-    refreshBackdrop();
-
-    selectInDropdown(characterDropdown, characterIds.indexOf(characterId));
-
-    fillAnimationDropdown();
-    populatePanel();
-
-    if (animationNames.length > 0)
-    {
-      // Named on the control as well as played, or the dropdown sits blank
-      // over an animation that is running.
-      selectInDropdown(animationDropdown, 0);
-      playAnimation(animationNames[0]);
-    }
-
-    say('Loaded $id.');
-  }
-
-  /**
-   * Build the stage fresh.
-   *
-   * Rebuilding rather than swapping the character out of the old one: a stage
-   * places a character when it is added, and taking one back off again is
-   * more of its business than an editor should be reaching into.
-   */
-  function loadStage():Void
-  {
-    unloadStage();
-
-    stage = StageRegistry.instance.fetchEntry(STAGE_ID);
-
-    if (stage == null) return;
-
-    stage.revive();
-    ScriptEventDispatcher.callEvent(stage, new ScriptEvent(CREATE, false));
-
-    stage.cameras = [camStage];
-    add(stage);
-  }
-
-  /**
-   * Put the stage away.
-   *
-   * The registry hands out one stage and hands out the same one every time,
-   * so a stage that is merely dropped and fetched again is the same object
-   * with everything still on it — and building it once more builds a second
-   * set of props on top of the first, and a third, until the frame rate says
-   * so. Destroying it is what empties it, and takes whatever was standing on
-   * it along too.
-   */
-  function unloadStage():Void
-  {
-    if (stage == null) return;
-
-    ScriptEventDispatcher.callEvent(stage, new ScriptEvent(DESTROY, false));
-    remove(stage);
-    stage.kill();
-    stage = null;
-
-    // Destroyed along with the stage it was standing on.
-    character = null;
-  }
-
-  function lookAtCharacter():Void
-  {
-    camStage.zoom = 0.7;
-
-    if (character == null)
-    {
-      camStage.scroll.set(0, 0);
-      return;
-    }
-
-    var middle = character.getMidpoint();
-    camStage.focusOn(middle);
-    middle.putWeak();
-  }
-
-  function replayAnimation():Void
-  {
-    if (character == null || animationName == '') return;
-
-    character.playAnimation(animationName, true);
-  }
-
-  function fillAnimationDropdown():Void
-  {
-    if (animationDropdown == null) return;
-
-    populating = true;
-    animationDropdown.dataSource.clear();
-
-    for (name in animationNames)
-      animationDropdown.dataSource.add({text: name});
-
-    populating = false;
-  }
-
-  /**
-   * Show a row as the chosen one.
-   *
-   * Left until the next frame on purpose. Most of the calls to this come,
-   * one way or another, from a dropdown's own change handler, which HaxeUI
-   * runs in the middle of validating that dropdown; writing to it there is
-   * changing a component while it is being validated, which the toolkit
-   * catches as a possible infinite loop and turns into a crash. By the next
-   * frame the validation pass it came from is over.
-   */
-  function selectInDropdown(dropdown:Null<DropDown>, index:Int):Void
-  {
-    if (dropdown == null || index < 0) return;
-
-    haxe.ui.Toolkit.callLater(function() {
-      // The editor may be long gone by now: making a character reloads the
-      // assets, which rebuilds the state, and anything left over from the
-      // old one is pointing at components that were thrown away with it.
-      if (FlxG.state != this) return;
-
-      populating = true;
-
-      // A dropdown whose rows were swapped out under it keeps the index it
-      // had and decides nothing has changed, and comes up blank. Standing it
-      // down first makes the assignment land.
-      if (dropdown.selectedIndex == index) dropdown.selectedIndex = -1;
-
-      dropdown.selectedIndex = index;
-
-      populating = false;
-    });
-  }
-
-  function playAnimation(name:Null<String>):Void
-  {
-    if (character == null || name == null || name == '') return;
-
-    animationName = name;
-    character.playAnimation(name, true);
-
-    // An animation whose prefix is not in the sprite sheet plays nothing, and
-    // that is the most common thing wrong with a character file, so say so
-    // rather than leaving it to be discovered.
-    if (animationWarning != null)
-    {
-      var missing = !character.hasAnimation(name);
-      animationWarning.text = missing ? 'No frames for this prefix' : '';
-    }
-
-    refreshOffsetLabel();
-  }
-
-  function resetOffset():Void
-  {
-    setOffset(0, 0);
-    say('Offset cleared for $animationName.');
-  }
-
-  function setOffset(x:Float, y:Float):Void
-  {
-    if (character == null || animationName == '') return;
-
-    // Both: the map is what gets saved, the field is what the sprite draws
-    // itself with.
-    character.animOffsets = [x, y];
-    character.setAnimationOffsets(animationName, x, y);
-
-    refreshOffsetLabel();
-  }
-
-  function currentOffset():Array<Float>
-  {
-    if (character == null) return [0, 0];
-
-    var stored = character.animationOffsets.get(animationName);
-    return stored == null ? [0, 0] : stored;
-  }
-
-  function refreshOffsetLabel():Void
-  {
-    if (offsetLabel == null) return;
-
-    var offset = currentOffset();
-    offsetLabel.text = '${Std.int(offset[0])}, ${Std.int(offset[1])}';
-  }
-
-  // -- the rest of the character file --------------------------------------
-
-  function populatePanel():Void
-  {
-    if (data == null) return;
-
-    populating = true;
-
-    if (scaleStepper != null) scaleStepper.pos = data.scale ?? 1.0;
-    if (flipXCheck != null) flipXCheck.selected = data.flipX ?? false;
-    if (singTimeStepper != null) singTimeStepper.pos = data.singTime ?? 8.0;
-    if (danceEveryStepper != null) danceEveryStepper.pos = data.danceEvery ?? 1;
-
-    var camera = data.cameraOffsets ?? [0, 0];
-    if (cameraXStepper != null) cameraXStepper.pos = camera.length > 0 ? camera[0] : 0;
-    if (cameraYStepper != null) cameraYStepper.pos = camera.length > 1 ? camera[1] : 0;
-
-    populating = false;
-  }
-
-  function applyScale():Void
-  {
-    if (data == null || populating || scaleStepper == null) return;
-
-    data.scale = scaleStepper.pos;
-
-    // Reloading is the honest way to show a scale change: the character sets
-    // itself up from its data when it is built, and half of that cannot be
-    // changed afterwards.
-    if (character != null) character.setScale(data.scale);
-  }
-
-  /**
-   * Point the character the way its file says to.
-   *
-   * A character standing in the boyfriend slot is drawn mirrored: the sheets
-   * all face the way the opponent stands, and `flipX` in the file is written
-   * against that. The stage applies the flip when it takes a character, so
-   * setting the sprite straight from the file — as this used to — cancelled
-   * it out and the checkbox did nothing at all on that side of the stage.
-   *
-   * @param fromData Take the value from the file rather than the checkbox,
-   *   for when a character has just been loaded and the checkbox is stale.
-   */
-  function applyFlipX(fromData:Bool = false):Void
-  {
-    if (data == null) return;
-    if (!fromData && (populating || flipXCheck == null)) return;
-
-    if (!fromData && flipXCheck != null) data.flipX = flipXCheck.selected;
-
-    var flipped:Bool = data.flipX ?? false;
-
-    // Mirrored for boyfriend, but only once it is actually on a stage; on its
-    // own the character wears the file's value as it is.
-    if (stage != null && characterType == BF) flipped = !flipped;
-
-    if (character != null) character.flipX = flipped;
-  }
-
-  function applySingTime():Void
-  {
-    if (data == null || populating || singTimeStepper == null) return;
-    data.singTime = singTimeStepper.pos;
-  }
-
-  function applyDanceEvery():Void
-  {
-    if (data == null || populating || danceEveryStepper == null) return;
-    data.danceEvery = danceEveryStepper.pos;
-  }
-
-  function applyCameraOffsets():Void
-  {
-    if (data == null || populating) return;
-    if (cameraXStepper == null || cameraYStepper == null) return;
-
-    data.cameraOffsets = [cameraXStepper.pos, cameraYStepper.pos];
-  }
-
-  function say(message:String):Void
-  {
-    if (statusLabel != null) statusLabel.text = message;
   }
 
   // -- input --------------------------------------------------------------
@@ -1468,6 +1712,7 @@ class CharacterEditorState extends MusicBeatState
   }
   #end
 
+
   override function destroy():Void
   {
     // The registry keeps its stage between visits, so anything still
@@ -1482,62 +1727,18 @@ class CharacterEditorState extends MusicBeatState
   {
     FlxG.switchState(() -> new funkin.ui.debug.EditorHubState());
   }
+}
 
-  // -- saving -------------------------------------------------------------
-
-  /**
-   * Write the character out as a mod.
-   *
-   * The old editor saves through a desktop file dialog, which is why it
-   * cannot save on a phone at all. This writes the file itself, and says
-   * either way — there is no console to check.
-   */
-  function save():Void
-  {
-    if (data == null || character == null)
-    {
-      say('Nothing to save.');
-      return;
-    }
-
-    // The sprite has been carrying the offsets while they were dragged; put
-    // them back into the data before it is written.
-    for (animation in data.animations)
-    {
-      var offsets = character.animationOffsets.get(animation.name);
-      if (offsets != null) animation.offsets = [offsets[0], offsets[1]];
-    }
-
-    #if sys
-    var root = '$MOD_ROOT/$MOD_ID';
-
-    try
-    {
-      makeModDirs();
-
-      FileUtil.writeStringToPath('$root/_polymod_meta.json', modMeta(), Force);
-      FileUtil.writeStringToPath('$root/data/characters/$characterId.json', haxe.Json.stringify(data, null, '  '), Force);
-
-      say('Saved to $root/data/characters/$characterId.json');
-    }
-    catch (error)
-    {
-      say('Could not save: $error');
-    }
-    #else
-    say('Saving is not available on this platform.');
-    #end
-  }
-
-  function modMeta():String
-  {
-    return haxe.Json.stringify({
-      title: "Editor",
-      description: "Characters saved from the editor app.",
-      contributors: [],
-      api_version: "0.1.0",
-      mod_version: "1.0.0",
-      license: "Unlicense"
-    }, null, '  ');
-  }
+/**
+ * A window the editor can put up and take away.
+ *
+ * Where it goes is worked out once, when it is built, and kept — otherwise a
+ * window would land somewhere new every time it was reopened.
+ */
+typedef EditorWindow =
+{
+  var dialog:CollapsibleDialog;
+  var shown:Bool;
+  var left:Null<Float>;
+  var top:Null<Float>;
 }
