@@ -246,8 +246,12 @@ jobs:
           if haxe build.hxml --no-output > typecheck.log 2>&1; then
             echo "typechecked clean"
           else
-            echo "--- first 80 lines ---"
-            head -80 typecheck.log
+            # The whole log is one macro failure reported per scripted class,
+            # so both ends of it are call frames. Strip the frames, the echoed
+            # source lines and the carets, and what is left is the message.
+            echo "--- messages ---"
+            grep -vE 'Called from here|^[[:space:]]*$|^[[:space:]]*[0-9]+ \||^[[:space:]]*\||^[[:space:]]*->' \
+              typecheck.log | head -40
             echo "--- ($(wc -l < typecheck.log) lines total) ---"
             exit 1
           fi
