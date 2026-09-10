@@ -131,7 +131,12 @@ jobs:
           # missing and offers to build them. That offer is the only thing
           # that breaks the circle, and there is no terminal here to accept
           # it. No submodule work is needed; this bootstraps itself.
-          (cd "$hxcpp_root/project" && yes | neko build.n)
+          #
+          # Its neko target then fails, and that is fine: what is needed from
+          # here is the hxcpp tool and the cpp toolchain, which are built by
+          # the time it gets there. lime compiles happily against it.
+          (cd "$hxcpp_root/project" && yes | neko build.n) \
+            || echo "::warning::hxcpp build.n did not finish; continuing"
 
           lime_root=$(find_root lime project/Build.xml)
           echo "--- building lime.ndll in $lime_root ---"
