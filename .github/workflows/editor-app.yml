@@ -87,13 +87,6 @@ jobs:
             .haxelib/hxcpp/git/bin
           key: haxe-native-linux64-${{ hashFiles('hmm.json') }}
 
-      # lime's native code lives in submodules of its own repository, and
-      # installing it from git does not bring them along. Rebuilding without
-      # them cannot work, whatever else is wrong.
-      - name: Fetch lime's submodules
-        if: steps.cache-lime.outputs.cache-hit != 'true'
-        run: git -C .haxelib/lime/git submodule update --init --recursive
-
       # Both of these come from git, so neither carries the compiled part
       # that its haxelib releases ship, and each in turn comes up and dies on
       # a native library that is not there. hxcpp is the bottom of it, since
@@ -123,8 +116,19 @@ jobs:
             return 1
           }
 
+          # Both keep their native sources in submodules of their own
+          # repositories, and installing from git does not bring those along.
+          for lib in hxcpp lime; do
+            root=$(haxelib path "$lib" | grep -m1 '^/')
+            root=${root%/}
+            while [ -n "$root" ] && [ ! -d "$root/.git" ]; do root=$(dirname "$root"); done
+            echo "--- submodules for $lib in $root ---"
+            git -C "$root" submodule update --init --recursive
+          done
+
           hxcpp_root=$(find_root hxcpp project/build.n)
           echo "--- building hxcpp's binaries in $hxcpp_root ---"
+          ls "$hxcpp_root/project/libs"
           # build.n shells out to the hxcpp tool, which finds its binaries
           # missing and offers to build them. That offer is the only thing
           # that breaks the circle — build.n needs the tool, the tool needs
