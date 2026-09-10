@@ -395,14 +395,16 @@ class CharacterEditorState extends MusicBeatState
   /**
    * Build every window and give each one a row under Window.
    *
-   * Laid out left to right in the order they are made, wrapping when the row
-   * runs out of screen, so a window added later lands somewhere sensible
-   * without anyone having to pick coordinates for it.
+   * Laid out left to right in the order they are made. When the row runs out
+   * of screen the next one starts again from the left, but stepped down and
+   * across, the way a desk full of windows ends up: there is not room for
+   * five of these side by side on a phone, and windows exactly on top of one
+   * another look like windows that have gone missing.
    */
   function buildWindows():Void
   {
     var left:Float = SCREEN_INSET;
-    var top:Float = menubarHeight + 12;
+    var wraps:Int = 0;
 
     function place(dialog:Null<CollapsibleDialog>):Void
     {
@@ -410,11 +412,12 @@ class CharacterEditorState extends MusicBeatState
 
       if (left + dialog.width > FlxG.width - SCREEN_INSET && left > SCREEN_INSET)
       {
-        left = SCREEN_INSET;
+        wraps++;
+        left = SCREEN_INSET + wraps * 36;
       }
 
       dialog.left = left;
-      dialog.top = top;
+      dialog.top = menubarHeight + 12 + wraps * 36;
 
       left += dialog.width + 12;
     }
