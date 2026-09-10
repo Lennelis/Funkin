@@ -120,6 +120,30 @@ jobs:
           haxelib --always run lime setup
           haxelib run lime rebuild hxcpp
 
+      # The Linux library above is the tooling that runs the build. The app
+      # links against a different one, built for the phone with the NDK, and
+      # a git checkout of lime has neither. This is the long part of the job,
+      # so it is cached separately from the host tooling.
+      - name: Restore lime for Android
+        id: cache-lime-android
+        uses: actions/cache/restore@v4
+        with:
+          path: .haxelib/lime/git/ndll/Android
+          key: haxe-lime-android-arm64-${{ hashFiles('hmm.json') }}
+
+      - name: Build lime for Android
+        if: steps.cache-lime-android.outputs.cache-hit != 'true'
+        run: |
+          haxelib run lime rebuild android -arm64
+          ls -la .haxelib/lime/git/ndll/Android
+
+      - name: Save lime for Android
+        if: always() && steps.cache-lime-android.outputs.cache-hit != 'true' && hashFiles('.haxelib/lime/git/ndll/Android/liblime-64.so') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .haxelib/lime/git/ndll/Android
+          key: haxe-lime-android-arm64-${{ hashFiles('hmm.json') }}
+
       - name: Point lime at the runner's Android SDK
         run: |
           NDK=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -1)
