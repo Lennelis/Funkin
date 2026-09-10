@@ -16,6 +16,7 @@ import funkin.play.stage.Stage;
 import funkin.ui.FullScreenScaleMode;
 import funkin.ui.MusicBeatState;
 import funkin.util.FileUtil;
+import funkin.util.FileUtil.SelectedFileData;
 import funkin.util.SortUtil;
 import haxe.ui.RuntimeComponentBuilder;
 import haxe.ui.components.Button;
@@ -25,6 +26,7 @@ import haxe.ui.components.Label;
 import haxe.ui.components.NumberStepper;
 import haxe.ui.containers.dialogs.CollapsibleDialog;
 import haxe.ui.containers.menus.MenuBar;
+import haxe.ui.containers.menus.MenuCheckBox;
 import haxe.ui.containers.menus.MenuItem;
 import haxe.ui.core.Screen;
 import haxe.ui.events.MouseEvent;
@@ -238,6 +240,14 @@ class CharacterEditorState extends MusicBeatState
    */
   var toolboxShown:Bool = false;
 
+  var newCharacterShown:Bool = false;
+
+  /**
+   * The rows under Windows, by the window each one stands for, so that a
+   * window closed by its own button can put its own tick down.
+   */
+  var windowToggles:Map<String, MenuCheckBox> = new Map<String, MenuCheckBox>();
+
   /**
    * Something to do once the toolkit has finished with the click that asked
    * for it.
@@ -325,6 +335,10 @@ class CharacterEditorState extends MusicBeatState
     menubarHeight = menubar.height > 0 ? menubar.height : 56;
 
     wireMenuItem('menuNew', openNewCharacter);
+    wireMenuItem('menuImport', () -> {
+      openNewCharacter();
+      later(importSheet);
+    });
     wireMenuItem('menuSave', save);
     wireMenuItem('menuReload', () -> loadCharacter(characterId, true));
     wireMenuItem('menuExit', () -> later(goBack));
@@ -332,7 +346,9 @@ class CharacterEditorState extends MusicBeatState
     wireMenuItem('menuReplay', replayAnimation);
     wireMenuItem('menuResetCamera', lookAtCharacter);
     wireMenuItem('menuToggleStage', toggleStage);
-    wireMenuItem('menuTogglePanel', togglePanel);
+
+    wireWindowToggle('windowCharacter', showToolbox);
+    wireWindowToggle('windowNewCharacter', showNewCharacter);
   }
 
   function wireMenuItem(id:String, action:Void->Void):Void
@@ -341,6 +357,36 @@ class CharacterEditorState extends MusicBeatState
 
     var item = menubar.findComponent(id, MenuItem);
     if (item != null) item.onClick = _ -> action();
+  }
+
+  /**
+   * Tie a row under Windows to the window it names.
+   *
+   * Ticking it opens that window, unticking it puts it away, and closing the
+   * window by its own button unticks the row.
+   */
+  function wireWindowToggle(id:String, show:Bool->Void):Void
+  {
+    if (menubar == null) return;
+
+    var item = menubar.findComponent(id, MenuCheckBox);
+    if (item == null) return;
+
+    windowToggles.set(id, item);
+    item.registerEvent(UIEvent.CHANGE, function(_) show(item.selected));
+  }
+
+  /**
+   * Put a row's tick where the window actually is.
+   *
+   * Setting it reports a change of its own, so the thing that change asks
+   * for has to be happy being asked for something already true — the same
+   * rule the dropdowns follow.
+   */
+  function markWindowToggle(id:String, open:Bool):Void
+  {
+    var item = windowToggles.get(id);
+    if (item != null && item.selected != open) item.selected = open;
   }
 
   function toggleStage():Void
@@ -392,13 +438,13 @@ class CharacterEditorState extends MusicBeatState
     toolbox.top = menubarHeight + 12;
   }
 
-  function togglePanel():Void
+  function showToolbox(on:Bool):Void
   {
-    if (toolbox == null) return;
+    if (toolbox == null || on == toolboxShown) return;
 
-    toolboxShown = !toolboxShown;
+    toolboxShown = on;
 
-    if (toolboxShown)
+    if (on)
     {
       toolbox.showDialog(false);
       toolbox.cameras = [camUI];
@@ -408,6 +454,8 @@ class CharacterEditorState extends MusicBeatState
     {
       toolbox.hide();
     }
+
+    markWindowToggle('windowCharacter', on);
   }
 
   function buildToolbox():Void
@@ -547,6 +595,12 @@ class CharacterEditorState extends MusicBeatState
     var rescanButton = newCharacterDialog.findComponent('rescanButton', Button);
     if (rescanButton != null) rescanButton.onClick = function(event:MouseEvent) rescanSheets();
 
+    // Asking the system for a file puts the app in the background and brings
+    // it back, which is not a thing to start in the middle of handling the
+    // press that asked for it.
+    var importButton = newCharacterDialog.findComponent('importButton', Button);
+    if (importButton != null) importButton.onClick = function(event:MouseEvent) later(importSheet);
+
     var createButton = newCharacterDialog.findComponent('createButton', Button);
     if (createButton != null) createButton.onClick = function(event:MouseEvent) createFromSheet();
 
@@ -582,27 +636,43 @@ class CharacterEditorState extends MusicBeatState
 
   function openNewCharacter():Void
   {
-    if (newCharacterDialog == null) return;
-
-    makeModDirs();
-
-    newCharacterDialog.showDialog(false);
-    newCharacterDialog.cameras = [camUI];
-
-    // `left` and `top` rather than `x` and `y`: a dialog recentres itself a
-    // couple of frames after it is shown, and those are the two it checks
-    // before deciding it knows better.
-    newCharacterDialog.left = Math.max(SCREEN_INSET, (FlxG.width - newCharacterDialog.width) / 2);
-    newCharacterDialog.top = menubarHeight + 12;
-
-    rescanSheets();
-
-    if (sheetPathLabel != null) sheetPathLabel.text = sheetFolder();
+    showNewCharacter(true);
   }
 
   function closeNewCharacter():Void
   {
-    if (newCharacterDialog != null) newCharacterDialog.hide();
+    showNewCharacter(false);
+  }
+
+  function showNewCharacter(on:Bool):Void
+  {
+    if (newCharacterDialog == null || on == newCharacterShown) return;
+
+    newCharacterShown = on;
+
+    if (on)
+    {
+      makeModDirs();
+
+      newCharacterDialog.showDialog(false);
+      newCharacterDialog.cameras = [camUI];
+
+      // `left` and `top` rather than `x` and `y`: a dialog recentres itself
+      // a couple of frames after it is shown, and those are the two it
+      // checks before deciding it knows better.
+      newCharacterDialog.left = Math.max(SCREEN_INSET, (FlxG.width - newCharacterDialog.width) / 2);
+      newCharacterDialog.top = menubarHeight + 12;
+
+      rescanSheets();
+
+      if (sheetPathLabel != null) sheetPathLabel.text = sheetFolder();
+    }
+    else
+    {
+      newCharacterDialog.hide();
+    }
+
+    markWindowToggle('windowNewCharacter', on);
   }
 
   /**
@@ -715,6 +785,146 @@ class CharacterEditorState extends MusicBeatState
     #else
     sayNew('Making characters needs a filesystem.');
     #end
+  }
+
+  /**
+   * Bring a sheet in from wherever it is on the phone.
+   *
+   * The folder this editor reads is one it can be sure of, which is why it
+   * reads a folder — but getting a file into that folder otherwise means a
+   * cable or a file manager that can see into the app's own storage, and on
+   * a recent Android that second one is not a given. This asks the system
+   * for the file instead, and puts it in the folder itself.
+   *
+   * A Sparrow sheet is two files, so it asks twice.
+   */
+  function importSheet():Void
+  {
+    #if sys
+    sayNew('Choose the image...');
+
+    FileUtil.browseForFile('Choose a sprite sheet image', [FileUtil.FILE_FILTER_PNG], function(image:SelectedFileData) {
+      if (image?.bytes == null)
+      {
+        sayNew('Could not read that image.');
+        return;
+      }
+
+      var name:String = sheetNameOf(image);
+      sayNew('Now choose $name.xml...');
+
+      FileUtil.browseForFile('Choose the matching .xml', [FileUtil.FILE_FILTER_XML], function(description:SelectedFileData) {
+        if (description?.bytes == null)
+        {
+          sayNew('Could not read that .xml.');
+          return;
+        }
+
+        writeSheet(name, image.bytes, description.bytes);
+      }, function() sayNew('Cancelled — a sheet needs its .xml too.'));
+    }, function() sayNew('Cancelled.'));
+    #else
+    sayNew('Importing needs a filesystem.');
+    #end
+  }
+
+  /**
+   * Put both halves of a sheet in the folder and pick it.
+   */
+  function writeSheet(name:String, image:lime.utils.Bytes, description:lime.utils.Bytes):Void
+  {
+    #if sys
+    try
+    {
+      makeModDirs();
+      FileUtil.writeBytesToPath('$SHEET_DIR/$name.png', image, Force);
+      FileUtil.writeBytesToPath('$SHEET_DIR/$name.xml', description, Force);
+    }
+    catch (error)
+    {
+      sayNew('Could not save the sheet: $error');
+      return;
+    }
+
+    rescanSheets();
+
+    var index:Int = sheetNames.indexOf(name);
+    if (index >= 0) selectInDropdown(sheetDropdown, index);
+
+    sayNew('Brought in $name.');
+    #end
+  }
+
+  /**
+   * What to call a sheet the system handed over.
+   *
+   * Android answers a file request with a `content://` URI rather than a
+   * path, and the readable name is the last part of it with the separators
+   * written as escapes, so it needs unpicking before it can be a file name
+   * again.
+   */
+  function sheetNameOf(file:SelectedFileData):String
+  {
+    var raw:String = decodePercent(file.fullPath ?? file.name ?? 'sheet');
+
+    for (separator in ['/', ':', '\\'])
+    {
+      var at:Int = raw.lastIndexOf(separator);
+      if (at != -1) raw = raw.substr(at + 1);
+    }
+
+    var dot:Int = raw.lastIndexOf('.');
+    if (dot > 0) raw = raw.substr(0, dot);
+
+    var cleaned:StringBuf = new StringBuf();
+    for (index in 0...raw.length)
+    {
+      var code:Int = StringTools.fastCodeAt(raw, index);
+      var safe:Bool = (code >= 'a'.code && code <= 'z'.code)
+        || (code >= 'A'.code && code <= 'Z'.code)
+        || (code >= '0'.code && code <= '9'.code)
+        || code == '-'.code
+        || code == '_'.code;
+
+      if (safe) cleaned.addChar(code);
+    }
+
+    var name:String = cleaned.toString();
+    return name == '' ? 'sheet' : name;
+  }
+
+  /**
+   * `%2F` and friends back into the characters they stand for.
+   *
+   * Not `StringTools.urlDecode`, which also reads `+` as a space and would
+   * quietly rename a file that has one in it.
+   */
+  function decodePercent(value:String):String
+  {
+    var out:StringBuf = new StringBuf();
+    var index:Int = 0;
+
+    while (index < value.length)
+    {
+      var code:Int = StringTools.fastCodeAt(value, index);
+
+      if (code == '%'.code && index + 2 < value.length)
+      {
+        var digits:Null<Int> = Std.parseInt('0x' + value.substr(index + 1, 2));
+
+        if (digits != null)
+        {
+          out.addChar(digits);
+          index += 3;
+          continue;
+        }
+      }
+
+      out.addChar(code);
+      index++;
+    }
+
+    return out.toString();
   }
 
   function makeModDirs():Void
