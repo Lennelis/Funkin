@@ -51,9 +51,24 @@ class Project extends HXProject
   static final TITLE_MOBILE:String = "FNF";
 
   /**
+   * The editor app's name on the home screen, to tell it apart from the game
+   * when both are installed.
+   */
+  static final TITLE_EDITOR:String = "FNF Editors";
+
+  /**
    * A package name used for identifying the app on various app stores.
    */
   static final PACKAGE_NAME:String = "me.funkin.fnf";
+
+  /**
+   * The editor app's own package name.
+   *
+   * Android identifies an installed app by this and nothing else, so a
+   * different one here is what lets the editors sit alongside the game rather
+   * than replacing it.
+   */
+  static final PACKAGE_NAME_EDITOR:String = "me.funkin.editors";
 
   /**
    * The name of the generated executable file.
@@ -619,10 +634,12 @@ class Project extends HXProject
    */
   function configureApp()
   {
-    this.meta.title = isMobile() ? TITLE_MOBILE : TITLE;
+    var isEditorApp:Bool = hasDefine("EDITOR_APP");
+
+    this.meta.title = isEditorApp ? TITLE_EDITOR : (isMobile() ? TITLE_MOBILE : TITLE);
 
     this.meta.version = VERSION;
-    this.meta.packageName = PACKAGE_NAME;
+    this.meta.packageName = isEditorApp ? PACKAGE_NAME_EDITOR : PACKAGE_NAME;
     this.meta.company = COMPANY;
 
     this.app.main = MAIN_CLASS;
@@ -886,9 +903,13 @@ class Project extends HXProject
     // Should be true except on web and mobile builds.
     // Debug editors aren't built to work on web or mobile right now.
     FEATURE_DEBUG_MENU.apply(this, !(isWeb() || isMobile()));
-    FEATURE_ANIMATION_EDITOR.apply(this, !(isWeb() || isMobile()));
-    FEATURE_CHART_EDITOR.apply(this, !(isWeb() || isMobile()));
-    FEATURE_STAGE_EDITOR.apply(this, !(isWeb() || isMobile()));
+    // The game leaves the editors out on a phone, which is the right call for
+    // the game. The editor app is nothing without them, so it keeps them.
+    var editorsByDefault:Bool = !(isWeb() || isMobile()) || hasDefine("EDITOR_APP");
+
+    FEATURE_ANIMATION_EDITOR.apply(this, editorsByDefault);
+    FEATURE_CHART_EDITOR.apply(this, editorsByDefault);
+    FEATURE_STAGE_EDITOR.apply(this, editorsByDefault);
     FEATURE_HAXEUI.apply(this, FEATURE_ANIMATION_EDITOR.isEnabled(this)
       || FEATURE_CHART_EDITOR.isEnabled(this)
       || FEATURE_STAGE_EDITOR.isEnabled(this));

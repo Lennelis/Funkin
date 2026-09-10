@@ -4,6 +4,7 @@ import flixel.FlxObject;
 import flixel.FlxSprite;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.math.FlxPoint;
+import flixel.util.FlxColor;
 import funkin.audio.FunkinSound;
 import funkin.ui.FullScreenScaleMode;
 import funkin.ui.MusicBeatState;
@@ -63,6 +64,15 @@ class EditorHubState extends MusicBeatState
     #end
     createItem("PLAY A SONG", openFreeplay);
 
+    #if mobile
+    // Not decoration. MenuList tests a tap against the second camera, and
+    // that camera only exists once one of the mobile controls has been added,
+    // so without this nothing on this screen answers a touch at all.
+    //
+    // Back leaves the editors for the game, which is still in this build.
+    addBackButton(FlxG.width - 230, FlxG.height - 200, FlxColor.WHITE, goBack, 1.0);
+    #end
+
     // Every editor is behind a feature flag, so a build with all of them off
     // would leave nothing to focus the camera on.
     if (items.members.length > 0)
@@ -112,6 +122,13 @@ class EditorHubState extends MusicBeatState
   {
     FlxTransitionableState.skipNextTransIn = true;
     FlxG.switchState(() -> new funkin.ui.debug.anim.DebugBoundingState());
+  }
+  #end
+
+  #if mobile
+  function goBack():Void
+  {
+    FlxG.switchState(() -> new funkin.ui.title.TitleState());
   }
   #end
 
