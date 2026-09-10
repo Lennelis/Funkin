@@ -1,9 +1,7 @@
 package funkin.ui.debug;
 
-import flixel.FlxObject;
 import flixel.FlxSprite;
 import flixel.addons.transition.FlxTransitionableState;
-import flixel.math.FlxPoint;
 import flixel.text.FlxText;
 import flixel.util.FlxColor;
 import funkin.audio.FunkinSound;
@@ -27,12 +25,6 @@ class EditorHubState extends MusicBeatState
   var items:TextMenuList;
 
   /**
-   * What the camera follows, so the list can scroll past the bottom of the
-   * screen the way the debug menu's does.
-   */
-  var camFocusPoint:FlxObject;
-
-  /**
    * Says which editor is opening.
    *
    * On a phone there is no console to watch, so when an editor does not come
@@ -54,11 +46,6 @@ class EditorHubState extends MusicBeatState
     FlxTransitionableState.skipNextTransIn = true;
     super.create();
 
-    camFocusPoint = new FlxObject(0, 0);
-    add(camFocusPoint);
-
-    FlxG.camera.follow(camFocusPoint, null, 0.06);
-
     var menuBG = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
     menuBG.color = 0xFF4CAF50;
     menuBG.setGraphicSize(Std.int(menuBG.width * 1.1 * FullScreenScaleMode.wideScale.x));
@@ -68,7 +55,6 @@ class EditorHubState extends MusicBeatState
     add(menuBG);
 
     items = new TextMenuList();
-    items.onChange.add(onMenuChange);
     add(items);
 
     #if FEATURE_CHART_EDITOR
@@ -91,13 +77,7 @@ class EditorHubState extends MusicBeatState
     addBackButton(FlxG.width - 230, FlxG.height - 200, FlxColor.WHITE, goBack, 1.0);
     #end
 
-    // Every editor is behind a feature flag, so a build with all of them off
-    // would leave nothing to focus the camera on.
-    if (items.members.length > 0)
-    {
-      onMenuChange(items.members[0]);
-      FlxG.camera.focusOn(new FlxPoint(camFocusPoint.x, camFocusPoint.y + 500));
-    }
+    layOutItems();
 
     status = new FlxText(0, FlxG.height - 90, FlxG.width, "");
     status.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
@@ -142,9 +122,28 @@ class EditorHubState extends MusicBeatState
     }
   }
 
-  function onMenuChange(selected:TextMenuItem):Void
+  /**
+   * Put the list on the screen rather than scrolling the camera to it.
+   *
+   * The debug menu scrolls because its list can outgrow the screen. This one
+   * cannot, and scrolling actively breaks it: MenuList tests a tap against the
+   * controls camera, which never scrolls, so whatever the main camera has
+   * moved by is exactly how far off the tap lands. That is what made the top
+   * of this list unreachable while the bottom of it still answered.
+   */
+  function layOutItems():Void
   {
-    camFocusPoint.setPosition(selected.x + selected.width / 2, selected.y + selected.height / 2);
+    if (items.members.length == 0) return;
+
+    var spacing:Float = 100;
+    var top:Float = (FlxG.height - items.members.length * spacing) / 2;
+
+    for (index in 0...items.members.length)
+    {
+      var item = items.members[index];
+      item.y = top + index * spacing;
+      item.screenCenter(X);
+    }
   }
 
   function createItem(name:String, callback:Void->Void, fireInstantly = false):TextMenuItem
