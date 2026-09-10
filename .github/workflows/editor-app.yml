@@ -231,6 +231,22 @@ jobs:
 
           echo "made $(find assets -type d | wc -l) asset directories"
 
+      # The registries are built by a macro that reads assets/preload/data
+      # from disk at compile time, so empty directories are not enough for
+      # those — readDirectory throws on a path that is not there.
+      #
+      # Only the JSON is needed, not the audio and images, so this takes that
+      # one path out of the assets fork rather than the whole 2.5GB of it.
+      - name: Fetch the data the registry macro reads
+        if: steps.probe.outputs.ok != 'true'
+        run: |
+          git clone --filter=blob:none --sparse --depth 1 \
+            https://github.com/Lennelis/funkin.assets "$RUNNER_TEMP/assets-src"
+          git -C "$RUNNER_TEMP/assets-src" sparse-checkout set preload/data
+          mkdir -p assets/preload
+          cp -r "$RUNNER_TEMP/assets-src/preload/data" assets/preload/
+          echo "$(find assets/preload/data -name '*.json' | wc -l) data files"
+
       - name: Work out the build
         if: steps.probe.outputs.ok != 'true'
         run: |
