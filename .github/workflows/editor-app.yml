@@ -78,12 +78,14 @@ jobs:
       # that touches CFFI needs one, so it gets built. This is the slow step,
       # hence the cache; build-game.yml does the same thing for the same
       # reason.
-      - name: Restore lime's native tooling
+      - name: Restore native tooling
         id: cache-lime
         uses: actions/cache/restore@v4
         with:
-          path: .haxelib/lime/git/ndll/Linux64
-          key: haxe-lime-linux64-${{ hashFiles('hmm.json') }}
+          path: |
+            .haxelib/lime/git/ndll
+            .haxelib/hxcpp/git/bin
+          key: haxe-native-linux64-${{ hashFiles('hmm.json') }}
 
       # lime's native code lives in submodules of its own repository, and
       # installing it from git does not bring them along. Rebuilding without
@@ -92,24 +94,25 @@ jobs:
         if: steps.cache-lime.outputs.cache-hit != 'true'
         run: git -C .haxelib/lime/git submodule update --init --recursive
 
+      # hxcpp comes from git as well, so its own binaries were never built
+      # either, and `haxelib run hxcpp` stops to ask whether to build them.
+      # Nothing is attached to answer, so it has to be done up front.
+      - name: Build hxcpp's binaries
+        if: steps.cache-lime.outputs.cache-hit != 'true'
+        run: |
+          cd "$(dirname "$(haxelib path hxcpp | grep -m1 '^/')")/project"
+          neko build.n
+
       # lime cannot build the library it needs in order to run: every lime
       # command, `rebuild` included, loads CFFI first and dies. build-game.yml
       # only gets away with rebuilding through lime because its cache is never
       # cold.
       #
-      # So this calls what `lime rebuild` would have called. hxcpp is a plain
-      # haxelib and needs nothing from lime to run.
+      # So this calls what `lime rebuild` would have called.
       - name: Build lime's native tooling
         if: steps.cache-lime.outputs.cache-hit != 'true'
         run: |
-          cd .haxelib/lime/git
-          echo "--- lime checkout ---"
-          ls
-          cat .gitmodules 2>/dev/null || echo "(no .gitmodules)"
-          echo "--- project/lib ---"
-          ls project/lib 2>/dev/null | head || echo "(no project/lib)"
-          echo "--- building lime.ndll ---"
-          cd project
+          cd "$(haxelib path lime | grep -m1 '^/')/../project"
           haxelib run hxcpp Build.xml -Dlinux -DHXCPP_M64
           ls -la ../ndll/Linux64
 
@@ -145,9 +148,11 @@ jobs:
           path: .haxelib
           key: haxe-hmm-${{ runner.os }}-${{ hashFiles('hmm.json') }}
 
-      - name: Save lime's native tooling
+      - name: Save native tooling
         if: always() && steps.cache-lime.outputs.cache-hit != 'true' && hashFiles('.haxelib/lime/git/ndll/Linux64/lime.ndll') != ''
         uses: actions/cache/save@v4
         with:
-          path: .haxelib/lime/git/ndll/Linux64
-          key: haxe-lime-linux64-${{ hashFiles('hmm.json') }}
+          path: |
+            .haxelib/lime/git/ndll
+            .haxelib/hxcpp/git/bin
+          key: haxe-native-linux64-${{ hashFiles('hmm.json') }}
