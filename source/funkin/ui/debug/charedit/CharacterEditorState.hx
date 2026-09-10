@@ -163,6 +163,44 @@ class CharacterEditorState extends MusicBeatState
    */
   static final TAP_SLOP:Float = 14;
 
+  /**
+   * How far the panel and the menu bar's contents sit in from the edge.
+   *
+   * Phone screens are rounded, so the corner pixels are not there to be
+   * tapped even though the layout thinks they are. Anything you have to hit
+   * starts far enough in to clear the curve. The menu bar carries the same
+   * number as padding in its own layout, since it spans the screen.
+   */
+  static final SCREEN_INSET:Float = 30;
+
+  /**
+   * What an open dropdown looks like.
+   *
+   * On a phone HaxeUI opens a dropdown as a modal in the middle of the
+   * screen, which is the right shape for a thumb, but its stylesheet sizes
+   * that modal at three quarters of the screen regardless of what is in it.
+   * A list of three stage slots then arrives as a panel the width of the
+   * phone with three short rows up one side of it. This sizes the modal to
+   * the control it belongs to and gives the rows enough height to hit.
+   */
+  static final POPUP_STYLE:String = '
+    .dropdown-popup:mobile { width: 300px; }
+    .dropdown-popup .listview .itemrenderer { padding: 12px 10px; }
+  ';
+
+  /**
+   * The green behind an empty editor.
+   *
+   * Only up while there is no stage: a character standing on one should look
+   * the way it will in the game, and the game has nothing behind its stages.
+   */
+  var bg:Null<FlxSprite> = null;
+
+  /**
+   * How far down the panel has to start to clear the menu bar.
+   */
+  var menubarHeight:Float = 0;
+
   override function create():Void
   {
     FlxTransitionableState.skipNextTransIn = true;
@@ -170,13 +208,14 @@ class CharacterEditorState extends MusicBeatState
 
     // The same green as the screen this was opened from, so the app reads as
     // one thing rather than as the game with an editor bolted on.
-    var bg = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
-    bg.color = 0xFF4CAF50;
-    bg.setGraphicSize(Std.int(bg.width * 1.1 * FullScreenScaleMode.wideScale.x));
-    bg.updateHitbox();
-    bg.screenCenter();
-    bg.scrollFactor.set(0, 0);
-    add(bg);
+    var backdrop = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
+    backdrop.color = 0xFF4CAF50;
+    backdrop.setGraphicSize(Std.int(backdrop.width * 1.1 * FullScreenScaleMode.wideScale.x));
+    backdrop.updateHitbox();
+    backdrop.screenCenter();
+    backdrop.scrollFactor.set(0, 0);
+    add(backdrop);
+    bg = backdrop;
 
     camStage = new FunkinCamera('camStage');
     camStage.bgColor = 0x0;
@@ -185,6 +224,10 @@ class CharacterEditorState extends MusicBeatState
     camUI = new FunkinCamera('camUI');
     camUI.bgColor = 0x0;
     FlxG.cameras.add(camUI, false);
+
+    // Cleared again by the hub on the way back out, the same way the debug
+    // menu clears what it adds.
+    haxe.ui.Toolkit.styleSheet.parse(POPUP_STYLE, 'user');
 
     characterIds = CharacterDataParser.listCharacterIds();
     characterIds.sort(SortUtil.alphabetically);
@@ -209,6 +252,11 @@ class CharacterEditorState extends MusicBeatState
     menubar.cameras = [camUI];
     add(menubar);
 
+    // The bar itself still spans the screen, so it covers the corners rather
+    // than stopping short of them; it is the words inside that move in.
+    menubar.validateNow();
+    menubarHeight = menubar.height > 0 ? menubar.height : 56;
+
     wireMenuItem('menuSave', save);
     wireMenuItem('menuReload', () -> loadCharacter(characterId));
     wireMenuItem('menuExit', goBack);
@@ -230,6 +278,21 @@ class CharacterEditorState extends MusicBeatState
   function toggleStage():Void
   {
     if (stage != null) stage.visible = !stage.visible;
+    refreshBackdrop();
+  }
+
+  /**
+   * Show the green only when there is no stage to stand on.
+   *
+   * With a stage up the cameras draw onto nothing, which is black, and the
+   * character reads the way it will in a song rather than as a cutout on a
+   * menu.
+   */
+  function refreshBackdrop():Void
+  {
+    if (bg == null) return;
+
+    bg.visible = stage == null || !stage.visible;
   }
 
   function togglePanel():Void
@@ -247,8 +310,8 @@ class CharacterEditorState extends MusicBeatState
     toolbox.closable = false;
     add(toolbox);
     toolbox.showDialog(false);
-    toolbox.x = 16;
-    toolbox.y = 16;
+    toolbox.x = SCREEN_INSET;
+    toolbox.y = menubarHeight + 12;
 
     characterDropdown = toolbox.findComponent('characterDropdown', DropDown);
     animationDropdown = toolbox.findComponent('animationDropdown', DropDown);
@@ -299,14 +362,14 @@ class CharacterEditorState extends MusicBeatState
       };
     }
 
-    // Left to themselves these open far wider than the control they belong to
-    // and lie across the screen.
+    // How many rows an open dropdown shows before it starts scrolling. The
+    // width it opens at is in POPUP_STYLE; this is the only part of it the
+    // component itself decides.
     for (dropdown in [characterDropdown, animationDropdown, positionDropdown])
     {
       if (dropdown == null) continue;
 
-      dropdown.dropdownWidth = 300;
-      dropdown.dropdownHeight = 260;
+      dropdown.dropdownSize = 6;
     }
 
     var resetButton = toolbox.findComponent('resetOffsetButton', Button);
@@ -365,14 +428,25 @@ class CharacterEditorState extends MusicBeatState
       add(character);
     }
 
+    applyFlipX(true);
+
     animationNames = [for (animation in data.animations) animation.name];
 
     lookAtCharacter();
+    refreshBackdrop();
+
+    selectInDropdown(characterDropdown, characterIds.indexOf(characterId));
 
     fillAnimationDropdown();
     populatePanel();
 
-    if (animationNames.length > 0) playAnimation(animationNames[0]);
+    if (animationNames.length > 0)
+    {
+      // Named on the control as well as played, or the dropdown sits blank
+      // over an animation that is running.
+      selectInDropdown(animationDropdown, 0);
+      playAnimation(animationNames[0]);
+    }
 
     say('Loaded $id.');
   }
@@ -435,6 +509,23 @@ class CharacterEditorState extends MusicBeatState
     for (name in animationNames)
       animationDropdown.dataSource.add({text: name});
 
+    populating = false;
+  }
+
+  /**
+   * Show a row as the chosen one.
+   *
+   * A dropdown that has had its rows swapped out under it keeps the index it
+   * had and so decides nothing has changed, and comes up blank. Standing it
+   * down first makes the second assignment land.
+   */
+  function selectInDropdown(dropdown:Null<DropDown>, index:Int):Void
+  {
+    if (dropdown == null || index < 0) return;
+
+    populating = true;
+    dropdown.selectedIndex = -1;
+    dropdown.selectedIndex = index;
     populating = false;
   }
 
@@ -523,12 +614,32 @@ class CharacterEditorState extends MusicBeatState
     if (character != null) character.setScale(data.scale);
   }
 
-  function applyFlipX():Void
+  /**
+   * Point the character the way its file says to.
+   *
+   * A character standing in the boyfriend slot is drawn mirrored: the sheets
+   * all face the way the opponent stands, and `flipX` in the file is written
+   * against that. The stage applies the flip when it takes a character, so
+   * setting the sprite straight from the file — as this used to — cancelled
+   * it out and the checkbox did nothing at all on that side of the stage.
+   *
+   * @param fromData Take the value from the file rather than the checkbox,
+   *   for when a character has just been loaded and the checkbox is stale.
+   */
+  function applyFlipX(fromData:Bool = false):Void
   {
-    if (data == null || populating || flipXCheck == null) return;
+    if (data == null) return;
+    if (!fromData && (populating || flipXCheck == null)) return;
 
-    data.flipX = flipXCheck.selected;
-    if (character != null) character.flipX = data.flipX;
+    if (!fromData && flipXCheck != null) data.flipX = flipXCheck.selected;
+
+    var flipped:Bool = data.flipX ?? false;
+
+    // Mirrored for boyfriend, but only once it is actually on a stage; on its
+    // own the character wears the file's value as it is.
+    if (stage != null && characterType == BF) flipped = !flipped;
+
+    if (character != null) character.flipX = flipped;
   }
 
   function applySingTime():Void
