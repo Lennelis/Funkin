@@ -380,6 +380,10 @@ class InitState extends FlxState
     #elseif WAVEFORM
     // -DWAVEFORM
     FlxG.switchState(() -> new funkin.ui.debug.WaveformTestState());
+    #elseif EDITOR_APP
+    // -DEDITOR_APP
+    // The editors as the app, rather than as a detour from a game.
+    FlxG.switchState(() -> new funkin.ui.debug.EditorHubState());
     #elseif CHARTING
     // -DCHARTING
     FlxG.switchState(() -> new funkin.ui.debug.charting.ChartEditorState());

@@ -263,8 +263,12 @@ jobs:
           # line starts with an escape sequence rather than whitespace, which
           # is what defeated the last attempt at filtering these.
           export NO_COLOR=1
-          if haxe build.hxml --no-output > typecheck.log 2>&1; then
-            echo "typechecked clean"
+          # Twice: once as the game is normally built, and once as the editor
+          # app. The second is not redundant — the hub is only reachable under
+          # that define, so nothing would compile it otherwise.
+          if haxe build.hxml --no-output > typecheck.log 2>&1 \
+             && haxe build.hxml -D EDITOR_APP --no-output >> typecheck.log 2>&1; then
+            echo "typechecked clean, both as the game and as the editor app"
           else
             # The whole log is one macro failure reported per scripted class,
             # so both ends of it are call frames. Strip the frames, the echoed
