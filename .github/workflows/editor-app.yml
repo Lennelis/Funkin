@@ -145,6 +145,22 @@ jobs:
             || echo "::warning::hxcpp build.n did not finish; continuing"
 
           lime_root=$(find_root lime project/Build.xml)
+
+          # SDL writes its wayland protocol sources with wayland-scanner during
+          # its own cmake build. lime compiles SDL through hxcpp instead, which
+          # never runs that step, so the sources are expected to already exist
+          # and nothing has ever written them. Generate them here.
+          sdl="$lime_root/project/lib/sdl"
+          out="$sdl/wayland-generated-protocols"
+          mkdir -p "$out"
+          for xml in $(find /usr/share/wayland /usr/share/wayland-protocols \
+                            "$sdl/wayland-protocols" -name '*.xml' 2>/dev/null); do
+            base=$(basename "$xml" .xml)
+            wayland-scanner client-header "$xml" "$out/$base-client-protocol.h" 2>/dev/null || true
+            wayland-scanner private-code  "$xml" "$out/$base-client-protocol.c" 2>/dev/null || true
+          done
+          echo "generated $(ls "$out" | wc -l) wayland protocol files"
+
           echo "--- building lime.ndll in $lime_root ---"
           (cd "$lime_root/project" && yes | haxelib run hxcpp Build.xml -Dlinux -DHXCPP_M64)
 
