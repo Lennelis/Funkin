@@ -4,6 +4,7 @@ import flixel.FlxObject;
 import flixel.FlxSprite;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.math.FlxPoint;
+import flixel.text.FlxText;
 import flixel.util.FlxColor;
 import funkin.audio.FunkinSound;
 import funkin.ui.FullScreenScaleMode;
@@ -30,6 +31,23 @@ class EditorHubState extends MusicBeatState
    * screen the way the debug menu's does.
    */
   var camFocusPoint:FlxObject;
+
+  /**
+   * Says which editor is opening.
+   *
+   * On a phone there is no console to watch, so when an editor does not come
+   * up there is no way to tell whether the menu never fired or the editor
+   * failed on its way in. This distinguishes the two: if this appears and
+   * nothing follows, the editor is what went wrong.
+   */
+  var status:FlxText;
+
+  /**
+   * What to open once the status text has had a frame to draw.
+   */
+  var pending:Null<Void->Void> = null;
+
+  var pendingFrames:Int = 0;
 
   override function create():Void
   {
@@ -81,11 +99,47 @@ class EditorHubState extends MusicBeatState
       FlxG.camera.focusOn(new FlxPoint(camFocusPoint.x, camFocusPoint.y + 500));
     }
 
+    status = new FlxText(0, FlxG.height - 90, FlxG.width, "");
+    status.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, CENTER, OUTLINE, FlxColor.BLACK);
+    status.scrollFactor.set(0, 0);
+    status.visible = false;
+    add(status);
+
     #if FEATURE_HAXEUI
     // The same reason the debug menu does this: a stylesheet left over from
     // elsewhere makes the editors' own components come up wrong.
     haxe.ui.Toolkit.styleSheet.clear("user");
     #end
+  }
+
+  /**
+   * Show what is happening, then do it a frame later so the text is on screen
+   * before the editor takes over.
+   */
+  function open(what:String, action:Void->Void):Void
+  {
+    status.text = 'Opening $what...';
+    status.visible = true;
+
+    pending = action;
+    pendingFrames = 2;
+  }
+
+  override function update(elapsed:Float):Void
+  {
+    super.update(elapsed);
+
+    if (pending != null)
+    {
+      pendingFrames--;
+
+      if (pendingFrames <= 0)
+      {
+        var action = pending;
+        pending = null;
+        action();
+      }
+    }
   }
 
   function onMenuChange(selected:TextMenuItem):Void
@@ -104,7 +158,14 @@ class EditorHubState extends MusicBeatState
   #if FEATURE_CHART_EDITOR
   function openChartEditor():Void
   {
-    FlxTransitionableState.skipNextTransIn = true;
+    open('the chart editor', () -> {
+      FlxTransitionableState.skipNextTransIn = true;
+      switchToChartEditor();
+    });
+  }
+
+  function switchToChartEditor():Void
+  {
     FlxG.switchState(() -> new funkin.ui.debug.charting.ChartEditorState());
   }
   #end
@@ -112,7 +173,14 @@ class EditorHubState extends MusicBeatState
   #if FEATURE_STAGE_EDITOR
   function openStageEditor():Void
   {
-    FlxTransitionableState.skipNextTransIn = true;
+    open('the stage editor', () -> {
+      FlxTransitionableState.skipNextTransIn = true;
+      switchToStageEditor();
+    });
+  }
+
+  function switchToStageEditor():Void
+  {
     FlxG.switchState(() -> new funkin.ui.debug.stageeditor.StageEditorState());
   }
   #end
@@ -120,7 +188,14 @@ class EditorHubState extends MusicBeatState
   #if FEATURE_ANIMATION_EDITOR
   function openAnimationEditor():Void
   {
-    FlxTransitionableState.skipNextTransIn = true;
+    open('the animation editor', () -> {
+      FlxTransitionableState.skipNextTransIn = true;
+      switchToAnimationEditor();
+    });
+  }
+
+  function switchToAnimationEditor():Void
+  {
     FlxG.switchState(() -> new funkin.ui.debug.anim.DebugBoundingState());
   }
   #end
@@ -135,6 +210,6 @@ class EditorHubState extends MusicBeatState
   function openFreeplay():Void
   {
     FunkinSound.playOnce(Paths.sound('confirmMenu'));
-    FlxG.switchState(() -> new funkin.ui.freeplay.FreeplayState());
+    open('freeplay', () -> FlxG.switchState(() -> new funkin.ui.freeplay.FreeplayState()));
   }
 }
