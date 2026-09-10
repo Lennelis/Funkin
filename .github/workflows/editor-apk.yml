@@ -157,7 +157,10 @@ jobs:
       - name: Fetch the assets
         run: |
           rm -rf assets
-          git clone --depth 1 https://github.com/Lennelis/funkin.assets assets
+          # The editors' panel layouts live in the assets, so this follows the
+          # same branch the game side is developed on rather than main.
+          git clone --depth 1 --branch claude/fnf-editor-mobile-app-kzwsae \
+            https://github.com/Lennelis/funkin.assets assets
           du -sh assets
 
       # The art submodule carries the launcher icons and one file that gets

@@ -3,7 +3,6 @@ package funkin.ui.debug.charedit;
 import flixel.FlxSprite;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.math.FlxPoint;
-import flixel.text.FlxText;
 import flixel.util.FlxColor;
 import funkin.data.character.CharacterData;
 import funkin.data.character.CharacterData.CharacterDataParser;
@@ -13,6 +12,16 @@ import funkin.ui.FullScreenScaleMode;
 import funkin.ui.MusicBeatState;
 import funkin.util.FileUtil;
 import funkin.util.SortUtil;
+import haxe.ui.RuntimeComponentBuilder;
+import haxe.ui.components.Button;
+import haxe.ui.components.CheckBox;
+import haxe.ui.components.DropDown;
+import haxe.ui.components.Label;
+import haxe.ui.components.NumberStepper;
+import haxe.ui.containers.dialogs.CollapsibleDialog;
+import haxe.ui.core.Screen;
+import haxe.ui.events.MouseEvent;
+import haxe.ui.events.UIEvent;
 #if mobile
 import funkin.util.TouchUtil;
 #end
@@ -22,22 +31,24 @@ import funkin.util.TouchUtil;
  *
  * The existing one is built for a mouse and a keyboard: offsets are nudged
  * with the arrow keys and saving goes through a desktop file dialog, neither
- * of which exists on a phone. So it opens there and then cannot do the two
- * things it is for.
+ * of which exists on a phone, so it opens there and then cannot do either of
+ * the two things it is for.
  *
- * This keeps the parts of that which are not about input — the character
+ * This keeps the parts of it that are not about input — the character
  * loading, the animation playback, the offsets living on the sprite — and
- * replaces the rest. You drag the character to place it, two fingers move and
- * zoom the view, and saving writes a mod the game reads back.
+ * changes how you reach them. The panel is built the same way the other
+ * editors build theirs, from a layout in the assets, so it belongs to the
+ * same set; what differs is that the controls are sized for a finger and the
+ * character is placed by dragging it rather than by typing numbers.
  */
 class CharacterEditorState extends MusicBeatState
 {
   /**
    * Where a saved character goes.
    *
-   * Writing into a mod rather than over the game's own files means an edit is
-   * live the next time the game loads, and that the original is still there
-   * if the edit was a mistake.
+   * Writing a mod rather than over the game's own files means an edit is live
+   * the next time the game loads, and the original is still there if the edit
+   * was a mistake.
    */
   static final MOD_ROOT:String = 'mods';
 
@@ -53,7 +64,7 @@ class CharacterEditorState extends MusicBeatState
   var camStage:FunkinCamera;
 
   /**
-   * Everything that should stay put while the view moves.
+   * Where the panel lives, so it stays put while the view moves.
    */
   var camUI:FunkinCamera;
 
@@ -63,30 +74,41 @@ class CharacterEditorState extends MusicBeatState
 
   var characterIds:Array<String> = [];
 
-  var characterIndex:Int = 0;
+  var characterId:String = '';
 
   var animationNames:Array<String> = [];
 
-  var animationIndex:Int = 0;
+  var animationName:String = '';
 
-  var info:FlxText;
+  // -- the panel ----------------------------------------------------------
 
-  var status:FlxText;
+  var toolbox:Null<CollapsibleDialog> = null;
+
+  var characterDropdown:Null<DropDown> = null;
+  var animationDropdown:Null<DropDown> = null;
+  var animationWarning:Null<Label> = null;
+  var offsetLabel:Null<Label> = null;
+  var statusLabel:Null<Label> = null;
+  var scaleStepper:Null<NumberStepper> = null;
+  var flipXCheck:Null<CheckBox> = null;
+  var singTimeStepper:Null<NumberStepper> = null;
+  var danceEveryStepper:Null<NumberStepper> = null;
+  var cameraXStepper:Null<NumberStepper> = null;
+  var cameraYStepper:Null<NumberStepper> = null;
 
   /**
-   * The animation list down the right, and the buttons along the bottom.
+   * Set while the panel is being filled in from a character, so that changing
+   * a control does not read as the person having changed it.
    */
-  var buttons:Array<EditorButton> = [];
-
-  var animationButtons:Array<EditorButton> = [];
+  var populating:Bool = false;
 
   // -- gesture state ------------------------------------------------------
 
   var dragging:Bool = false;
 
   /**
-   * Where the character's offset would be if the finger were at the origin,
-   * so a drag can be turned into an offset without accumulating error.
+   * Where the offset would be with the finger at the origin, so a drag turns
+   * into an offset without accumulating error.
    */
   var dragAnchor:FlxPoint = new FlxPoint();
 
@@ -101,8 +123,8 @@ class CharacterEditorState extends MusicBeatState
     FlxTransitionableState.skipNextTransIn = true;
     super.create();
 
-    // The same green as the screen this was opened from, so it reads as part
-    // of the same app rather than as the game with a character in it.
+    // The same green as the screen this was opened from, so the app reads as
+    // one thing rather than as the game with an editor bolted on.
     var bg = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
     bg.color = 0xFF4CAF50;
     bg.setGraphicSize(Std.int(bg.width * 1.1 * FullScreenScaleMode.wideScale.x));
@@ -122,99 +144,81 @@ class CharacterEditorState extends MusicBeatState
     characterIds = CharacterDataParser.listCharacterIds();
     characterIds.sort(SortUtil.alphabetically);
 
-    buildUI();
+    buildToolbox();
     loadCharacter(characterIds.length > 0 ? characterIds[0] : null);
 
     #if mobile
-    // Also what puts a camera at index 1, which the engine's touch handling
-    // measures taps against.
+    // Also what puts a camera at index 1, which the engine's own touch
+    // handling measures taps against.
     addBackButton(FlxG.width - 230, FlxG.height - 200, FlxColor.WHITE, goBack, 1.0);
     #end
   }
 
-  // -- the screen ---------------------------------------------------------
-
-  function buildUI():Void
+  function buildToolbox():Void
   {
-    info = new FlxText(16, 16, FlxG.width * 0.6, "");
-    info.setFormat(Paths.font("vcr.ttf"), 28, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
-    info.scrollFactor.set(0, 0);
-    info.cameras = [camUI];
-    add(info);
+    toolbox = cast RuntimeComponentBuilder.fromAsset(Paths.xml('ui/character-editor/character-editor-view'));
 
-    status = new FlxText(16, FlxG.height - 54, FlxG.width - 32, "");
-    status.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
-    status.scrollFactor.set(0, 0);
-    status.cameras = [camUI];
-    add(status);
+    if (toolbox == null) return;
 
-    addButton("<", 16, FlxG.height - 130, 70, previousCharacter);
-    addButton(">", 96, FlxG.height - 130, 70, nextCharacter);
-    addButton("SAVE", 186, FlxG.height - 130, 150, save);
-    addButton("RESET", 346, FlxG.height - 130, 170, resetOffset);
-  }
+    toolbox.cameras = [camUI];
+    toolbox.closable = false;
+    add(toolbox);
+    toolbox.showDialog(false);
+    toolbox.x = 16;
+    toolbox.y = 16;
 
-  function addButton(label:String, x:Float, y:Float, width:Float, action:Void->Void):EditorButton
-  {
-    var button = new EditorButton(label, x, y, width, action);
-    button.attachTo(this, camUI);
-    buttons.push(button);
-    return button;
-  }
+    characterDropdown = toolbox.findComponent('characterDropdown', DropDown);
+    animationDropdown = toolbox.findComponent('animationDropdown', DropDown);
+    animationWarning = toolbox.findComponent('animationWarning', Label);
+    offsetLabel = toolbox.findComponent('offsetLabel', Label);
+    statusLabel = toolbox.findComponent('statusLabel', Label);
+    scaleStepper = toolbox.findComponent('scaleStepper', NumberStepper);
+    flipXCheck = toolbox.findComponent('flipXCheck', CheckBox);
+    singTimeStepper = toolbox.findComponent('singTimeStepper', NumberStepper);
+    danceEveryStepper = toolbox.findComponent('danceEveryStepper', NumberStepper);
+    cameraXStepper = toolbox.findComponent('cameraXStepper', NumberStepper);
+    cameraYStepper = toolbox.findComponent('cameraYStepper', NumberStepper);
 
-  /**
-   * The animation list, rebuilt whenever the character changes.
-   *
-   * An animation whose prefix is not in the sprite sheet plays nothing, and
-   * that is by far the most common thing wrong with a character file, so the
-   * list says which ones those are rather than leaving you to find out.
-   */
-  function buildAnimationList():Void
-  {
-    for (button in animationButtons)
-      button.detachFrom(this);
-
-    animationButtons = [];
-
-    var top:Float = 70;
-    var spacing:Float = 46;
-    var width:Float = 300;
-    var x:Float = FlxG.width - width - 16;
-
-    for (index in 0...animationNames.length)
+    if (characterDropdown != null)
     {
-      var name = animationNames[index];
-      var y = top + index * spacing;
+      for (id in characterIds)
+        characterDropdown.dataSource.add({text: id});
 
-      // Only as many as fit; the rest need paging, which is not built yet.
-      if (y + spacing > FlxG.height - 150) break;
-
-      var missing = character != null && !character.hasAnimation(name);
-      var chosen = index;
-
-      var button = new EditorButton(missing ? '$name (no frames)' : name, x, y, width, () -> selectAnimation(chosen));
-      button.setTint(missing ? 0xFFFFA726 : FlxColor.WHITE);
-      button.attachTo(this, camUI);
-
-      animationButtons.push(button);
+      characterDropdown.onChange = function(event:UIEvent) {
+        if (populating) return;
+        loadCharacter(event.data?.text);
+      };
     }
 
-    highlightAnimation();
-  }
+    if (animationDropdown != null)
+    {
+      animationDropdown.onChange = function(event:UIEvent) {
+        if (populating) return;
+        playAnimation(event.data?.text);
+      };
+    }
 
-  function highlightAnimation():Void
-  {
-    for (index in 0...animationButtons.length)
-      animationButtons[index].setSelected(index == animationIndex);
+    var resetButton = toolbox.findComponent('resetOffsetButton', Button);
+    if (resetButton != null) resetButton.onClick = function(event:MouseEvent) resetOffset();
+
+    var saveButton = toolbox.findComponent('saveButton', Button);
+    if (saveButton != null) saveButton.onClick = function(event:MouseEvent) save();
+
+    if (scaleStepper != null) scaleStepper.onChange = function(event:UIEvent) applyScale();
+    if (flipXCheck != null) flipXCheck.onChange = function(event:UIEvent) applyFlipX();
+    if (singTimeStepper != null) singTimeStepper.onChange = function(event:UIEvent) applySingTime();
+    if (danceEveryStepper != null) danceEveryStepper.onChange = function(event:UIEvent) applyDanceEvery();
+    if (cameraXStepper != null) cameraXStepper.onChange = function(event:UIEvent) applyCameraOffsets();
+    if (cameraYStepper != null) cameraYStepper.onChange = function(event:UIEvent) applyCameraOffsets();
   }
 
   // -- the character ------------------------------------------------------
 
   function loadCharacter(id:Null<String>):Void
   {
-    if (id == null)
+    if (id == null || id == '')
     {
-      say('No characters found.');
+      say('No character to load.');
       return;
     }
 
@@ -225,14 +229,13 @@ class CharacterEditorState extends MusicBeatState
       character = null;
     }
 
+    characterId = id;
     data = CharacterDataParser.fetchCharacterData(id);
     character = CharacterDataParser.fetchCharacter(id, true);
 
     if (character == null || data == null)
     {
       say('Could not load $id.');
-      animationNames = [];
-      buildAnimationList();
       return;
     }
 
@@ -241,98 +244,147 @@ class CharacterEditorState extends MusicBeatState
     add(character);
 
     animationNames = [for (animation in data.animations) animation.name];
-    animationIndex = 0;
 
     camStage.zoom = 1;
     camStage.scroll.set(0, 0);
 
-    buildAnimationList();
-    if (animationNames.length > 0) selectAnimation(0);
+    fillAnimationDropdown();
+    populatePanel();
 
-    refreshInfo();
+    if (animationNames.length > 0) playAnimation(animationNames[0]);
+
     say('Loaded $id.');
   }
 
-  function selectAnimation(index:Int):Void
+  function fillAnimationDropdown():Void
   {
-    if (character == null || index < 0 || index >= animationNames.length) return;
+    if (animationDropdown == null) return;
 
-    animationIndex = index;
-    character.playAnimation(animationNames[index], true);
+    populating = true;
+    animationDropdown.dataSource.clear();
 
-    highlightAnimation();
-    refreshInfo();
+    for (name in animationNames)
+      animationDropdown.dataSource.add({text: name});
+
+    populating = false;
   }
 
-  function currentAnimation():String
+  function playAnimation(name:Null<String>):Void
   {
-    if (animationIndex < 0 || animationIndex >= animationNames.length) return '';
-    return animationNames[animationIndex];
-  }
+    if (character == null || name == null || name == '') return;
 
-  function previousCharacter():Void
-  {
-    if (characterIds.length == 0) return;
+    animationName = name;
+    character.playAnimation(name, true);
 
-    characterIndex = (characterIndex - 1 + characterIds.length) % characterIds.length;
-    loadCharacter(characterIds[characterIndex]);
-  }
+    // An animation whose prefix is not in the sprite sheet plays nothing, and
+    // that is the most common thing wrong with a character file, so say so
+    // rather than leaving it to be discovered.
+    if (animationWarning != null)
+    {
+      var missing = !character.hasAnimation(name);
+      animationWarning.text = missing ? 'No frames for this prefix' : '';
+    }
 
-  function nextCharacter():Void
-  {
-    if (characterIds.length == 0) return;
-
-    characterIndex = (characterIndex + 1) % characterIds.length;
-    loadCharacter(characterIds[characterIndex]);
+    refreshOffsetLabel();
   }
 
   function resetOffset():Void
   {
     setOffset(0, 0);
-    say('Offset cleared for ${currentAnimation()}.');
+    say('Offset cleared for $animationName.');
   }
 
   function setOffset(x:Float, y:Float):Void
   {
-    if (character == null) return;
+    if (character == null || animationName == '') return;
 
-    var name = currentAnimation();
-    if (name == '') return;
-
-    // Both, because the map is what gets saved and the field is what the
-    // sprite draws itself with.
+    // Both: the map is what gets saved, the field is what the sprite draws
+    // itself with.
     character.animOffsets = [x, y];
-    character.setAnimationOffsets(name, x, y);
+    character.setAnimationOffsets(animationName, x, y);
 
-    refreshInfo();
+    refreshOffsetLabel();
   }
 
   function currentOffset():Array<Float>
   {
     if (character == null) return [0, 0];
 
-    var stored = character.animationOffsets.get(currentAnimation());
+    var stored = character.animationOffsets.get(animationName);
     return stored == null ? [0, 0] : stored;
   }
 
-  function refreshInfo():Void
+  function refreshOffsetLabel():Void
   {
-    if (character == null || data == null)
-    {
-      info.text = 'No character loaded';
-      return;
-    }
+    if (offsetLabel == null) return;
 
     var offset = currentOffset();
+    offsetLabel.text = '${Std.int(offset[0])}, ${Std.int(offset[1])}';
+  }
 
-    info.text = '${data.name}  (${characterIndex + 1}/${characterIds.length})\n'
-      + '${currentAnimation()}\n'
-      + 'offset ${Std.int(offset[0])}, ${Std.int(offset[1])}';
+  // -- the rest of the character file --------------------------------------
+
+  function populatePanel():Void
+  {
+    if (data == null) return;
+
+    populating = true;
+
+    if (scaleStepper != null) scaleStepper.pos = data.scale ?? 1.0;
+    if (flipXCheck != null) flipXCheck.selected = data.flipX ?? false;
+    if (singTimeStepper != null) singTimeStepper.pos = data.singTime ?? 8.0;
+    if (danceEveryStepper != null) danceEveryStepper.pos = data.danceEvery ?? 1;
+
+    var camera = data.cameraOffsets ?? [0, 0];
+    if (cameraXStepper != null) cameraXStepper.pos = camera.length > 0 ? camera[0] : 0;
+    if (cameraYStepper != null) cameraYStepper.pos = camera.length > 1 ? camera[1] : 0;
+
+    populating = false;
+  }
+
+  function applyScale():Void
+  {
+    if (data == null || populating || scaleStepper == null) return;
+
+    data.scale = scaleStepper.pos;
+
+    // Reloading is the honest way to show a scale change: the character sets
+    // itself up from its data when it is built, and half of that cannot be
+    // changed afterwards.
+    if (character != null) character.setScale(data.scale);
+  }
+
+  function applyFlipX():Void
+  {
+    if (data == null || populating || flipXCheck == null) return;
+
+    data.flipX = flipXCheck.selected;
+    if (character != null) character.flipX = data.flipX;
+  }
+
+  function applySingTime():Void
+  {
+    if (data == null || populating || singTimeStepper == null) return;
+    data.singTime = singTimeStepper.pos;
+  }
+
+  function applyDanceEvery():Void
+  {
+    if (data == null || populating || danceEveryStepper == null) return;
+    data.danceEvery = danceEveryStepper.pos;
+  }
+
+  function applyCameraOffsets():Void
+  {
+    if (data == null || populating) return;
+    if (cameraXStepper == null || cameraYStepper == null) return;
+
+    data.cameraOffsets = [cameraXStepper.pos, cameraYStepper.pos];
   }
 
   function say(message:String):Void
   {
-    status.text = message;
+    if (statusLabel != null) statusLabel.text = message;
   }
 
   // -- input --------------------------------------------------------------
@@ -348,6 +400,15 @@ class CharacterEditorState extends MusicBeatState
     #end
   }
 
+  /**
+   * Whether a point is over the panel, so that using it does not also drag
+   * the character underneath.
+   */
+  function overPanel(x:Float, y:Float):Bool
+  {
+    return Screen.instance.hasSolidComponentUnderPoint(x, y);
+  }
+
   #if mobile
   function updateGestures():Void
   {
@@ -355,8 +416,8 @@ class CharacterEditorState extends MusicBeatState
 
     if (touches.length >= 2)
     {
-      // Two fingers move and scale the view. A drag that was underway is
-      // abandoned rather than fighting the pinch.
+      // Two fingers move and scale the view. A drag underway is abandoned
+      // rather than fighting the pinch.
       dragging = false;
 
       var a = touches[0].getWorldPosition(camUI);
@@ -389,22 +450,23 @@ class CharacterEditorState extends MusicBeatState
 
     pinching = false;
 
-    for (button in buttons)
-      if (button.wasTapped(camUI)) return;
-
-    for (button in animationButtons)
-      if (button.wasTapped(camUI)) return;
-
     if (character == null) return;
 
     if (TouchUtil.justPressed)
     {
-      var point = TouchUtil.touch.getWorldPosition(camStage);
-      var offset = currentOffset();
+      var onPanel = TouchUtil.touch.getWorldPosition(camUI);
+      var over = overPanel(onPanel.x, onPanel.y);
+      onPanel.putWeak();
 
-      dragging = true;
-      dragAnchor.set(point.x + offset[0], point.y + offset[1]);
-      point.putWeak();
+      if (!over)
+      {
+        var point = TouchUtil.touch.getWorldPosition(camStage);
+        var offset = currentOffset();
+
+        dragging = true;
+        dragAnchor.set(point.x + offset[0], point.y + offset[1]);
+        point.putWeak();
+      }
     }
 
     if (dragging && TouchUtil.pressed)
@@ -424,22 +486,23 @@ class CharacterEditorState extends MusicBeatState
   #else
   function updateMouse():Void
   {
-    for (button in buttons)
-      if (button.wasClicked(camUI)) return;
-
-    for (button in animationButtons)
-      if (button.wasClicked(camUI)) return;
-
     if (character == null) return;
 
     if (FlxG.mouse.justPressed)
     {
-      var point = FlxG.mouse.getWorldPosition(camStage);
-      var offset = currentOffset();
+      var view = FlxG.mouse.getViewPosition(camUI);
+      var over = overPanel(view.x, view.y);
+      view.putWeak();
 
-      dragging = true;
-      dragAnchor.set(point.x + offset[0], point.y + offset[1]);
-      point.putWeak();
+      if (!over)
+      {
+        var point = FlxG.mouse.getWorldPosition(camStage);
+        var offset = currentOffset();
+
+        dragging = true;
+        dragAnchor.set(point.x + offset[0], point.y + offset[1]);
+        point.putWeak();
+      }
     }
 
     if (dragging && FlxG.mouse.pressed)
@@ -465,8 +528,8 @@ class CharacterEditorState extends MusicBeatState
    * Write the character out as a mod.
    *
    * The old editor saves through a desktop file dialog, which is why it
-   * cannot save on a phone at all. This writes the file itself, and says so
-   * on screen either way — there is no console to check.
+   * cannot save on a phone at all. This writes the file itself, and says
+   * either way — there is no console to check.
    */
   function save():Void
   {
@@ -495,11 +558,9 @@ class CharacterEditorState extends MusicBeatState
       FileUtil.createDirIfNotExists('$root/data/characters');
 
       FileUtil.writeStringToPath('$root/_polymod_meta.json', modMeta(), Force);
-      var id = characterIds[characterIndex];
+      FileUtil.writeStringToPath('$root/data/characters/$characterId.json', haxe.Json.stringify(data, null, '  '), Force);
 
-      FileUtil.writeStringToPath('$root/data/characters/$id.json', haxe.Json.stringify(data, null, '  '), Force);
-
-      say('Saved to $root/data/characters/$id.json');
+      say('Saved to $root/data/characters/$characterId.json');
     }
     catch (error)
     {

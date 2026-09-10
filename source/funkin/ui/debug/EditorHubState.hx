@@ -63,7 +63,9 @@ class EditorHubState extends MusicBeatState
     #if FEATURE_STAGE_EDITOR
     createItem("STAGE EDITOR", openStageEditor);
     #end
+    #if FEATURE_HAXEUI
     createItem("CHARACTER EDITOR", openCharacterEditor);
+    #end
     createItem("PLAY A SONG", openFreeplay);
 
     #if mobile
@@ -182,6 +184,7 @@ class EditorHubState extends MusicBeatState
   }
   #end
 
+  #if FEATURE_HAXEUI
   function openCharacterEditor():Void
   {
     open('the character editor', () -> {
@@ -194,6 +197,7 @@ class EditorHubState extends MusicBeatState
   {
     FlxG.switchState(() -> new funkin.ui.debug.charedit.CharacterEditorState());
   }
+  #end
 
   #if mobile
   function goBack():Void
