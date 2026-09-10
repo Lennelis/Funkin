@@ -1650,6 +1650,15 @@ class CharacterEditorState extends MusicBeatState
     return out.toString();
   }
 
+  /**
+   * Make sure the editor's own mod is a mod.
+   *
+   * The folders are the easy half. The other half is the metadata file:
+   * without one, the scan that finds mods skips the folder entirely and
+   * everything in it — a sprite sheet included — is not an asset as far as
+   * the game is concerned, which looks exactly like a character whose art
+   * failed to load.
+   */
   function makeModDirs():Void
   {
     #if sys
@@ -1661,7 +1670,23 @@ class CharacterEditorState extends MusicBeatState
     FileUtil.createDirIfNotExists('$root/data/characters');
     FileUtil.createDirIfNotExists('$root/images');
     FileUtil.createDirIfNotExists('$root/images/characters');
+
+    // Left alone if it is already there, in case it has been edited.
+    var meta:String = haxe.io.Path.join([root, polymod.PolymodConfig.modMetadataFile]);
+    if (!FileUtil.fileExists(meta)) FileUtil.writeStringToPath(meta, modMeta(), Force);
     #end
+  }
+
+  function modMeta():String
+  {
+    return haxe.Json.stringify({
+      title: "Editor",
+      description: "Sprite sheets brought into the character editor.",
+      contributors: [],
+      api_version: "0.1.0",
+      mod_version: "1.0.0",
+      license: "Unlicense"
+    }, null, '  ');
   }
 
   // -- input --------------------------------------------------------------
