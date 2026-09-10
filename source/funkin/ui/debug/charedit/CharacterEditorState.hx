@@ -6,8 +6,13 @@ import flixel.math.FlxPoint;
 import flixel.util.FlxColor;
 import funkin.data.character.CharacterData;
 import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.stage.StageRegistry;
+import funkin.modding.events.ScriptEvent;
+import funkin.modding.events.ScriptEventDispatcher;
 import funkin.graphics.FunkinCamera;
 import funkin.play.character.BaseCharacter;
+import funkin.play.character.BaseCharacter.CharacterType;
+import funkin.play.stage.Stage;
 import funkin.ui.FullScreenScaleMode;
 import funkin.ui.MusicBeatState;
 import funkin.util.FileUtil;
@@ -19,6 +24,8 @@ import haxe.ui.components.DropDown;
 import haxe.ui.components.Label;
 import haxe.ui.components.NumberStepper;
 import haxe.ui.containers.dialogs.CollapsibleDialog;
+import haxe.ui.containers.menus.MenuBar;
+import haxe.ui.containers.menus.MenuItem;
 import haxe.ui.core.Screen;
 import haxe.ui.events.MouseEvent;
 import haxe.ui.events.UIEvent;
@@ -54,6 +61,12 @@ class CharacterEditorState extends MusicBeatState
 
   static final MOD_ID:String = 'editor';
 
+  /**
+   * The stage a character is shown on. The one the game opens on, so what you
+   * see here is what most songs will show.
+   */
+  static final STAGE_ID:String = 'mainStage';
+
   static final ZOOM_MIN:Float = 0.15;
 
   static final ZOOM_MAX:Float = 4.0;
@@ -76,6 +89,20 @@ class CharacterEditorState extends MusicBeatState
 
   var characterId:String = '';
 
+  /**
+   * The stage the character is stood on.
+   *
+   * Offsets and scale only mean anything against something, and a character
+   * floating on an empty screen gives nothing to judge either by. This is the
+   * same stage the game builds, put where the game puts it.
+   */
+  var stage:Null<Stage> = null;
+
+  /**
+   * Which slot on the stage the character is standing in.
+   */
+  var characterType:CharacterType = BF;
+
   var animationNames:Array<String> = [];
 
   var animationName:String = '';
@@ -83,6 +110,10 @@ class CharacterEditorState extends MusicBeatState
   // -- the panel ----------------------------------------------------------
 
   var toolbox:Null<CollapsibleDialog> = null;
+
+  var menubar:Null<MenuBar> = null;
+
+  var positionDropdown:Null<DropDown> = null;
 
   var characterDropdown:Null<DropDown> = null;
   var animationDropdown:Null<DropDown> = null;
@@ -118,6 +149,20 @@ class CharacterEditorState extends MusicBeatState
 
   var lastPinchDistance:Float = 0;
 
+  /**
+   * Where a press started, so that letting go without having moved can be
+   * told apart from a drag. One is asking to see the animation again, the
+   * other is placing the character, and they start out identical.
+   */
+  var pressedAt:FlxPoint = new FlxPoint();
+
+  var pressWasDrag:Bool = false;
+
+  /**
+   * How far a finger may wander and still count as a tap.
+   */
+  static final TAP_SLOP:Float = 14;
+
   override function create():Void
   {
     FlxTransitionableState.skipNextTransIn = true;
@@ -144,6 +189,7 @@ class CharacterEditorState extends MusicBeatState
     characterIds = CharacterDataParser.listCharacterIds();
     characterIds.sort(SortUtil.alphabetically);
 
+    buildMenubar();
     buildToolbox();
     loadCharacter(characterIds.length > 0 ? characterIds[0] : null);
 
@@ -152,6 +198,43 @@ class CharacterEditorState extends MusicBeatState
     // handling measures taps against.
     addBackButton(FlxG.width - 230, FlxG.height - 200, FlxColor.WHITE, goBack, 1.0);
     #end
+  }
+
+  function buildMenubar():Void
+  {
+    menubar = cast RuntimeComponentBuilder.fromAsset(Paths.xml('ui/character-editor/menu-bar'));
+
+    if (menubar == null) return;
+
+    menubar.cameras = [camUI];
+    add(menubar);
+
+    wireMenuItem('menuSave', save);
+    wireMenuItem('menuReload', () -> loadCharacter(characterId));
+    wireMenuItem('menuExit', goBack);
+    wireMenuItem('menuResetOffset', resetOffset);
+    wireMenuItem('menuReplay', replayAnimation);
+    wireMenuItem('menuResetCamera', lookAtCharacter);
+    wireMenuItem('menuToggleStage', toggleStage);
+    wireMenuItem('menuTogglePanel', togglePanel);
+  }
+
+  function wireMenuItem(id:String, action:Void->Void):Void
+  {
+    if (menubar == null) return;
+
+    var item = menubar.findComponent(id, MenuItem);
+    if (item != null) item.onClick = _ -> action();
+  }
+
+  function toggleStage():Void
+  {
+    if (stage != null) stage.visible = !stage.visible;
+  }
+
+  function togglePanel():Void
+  {
+    if (toolbox != null) toolbox.hidden = !toolbox.hidden;
   }
 
   function buildToolbox():Void
@@ -198,6 +281,34 @@ class CharacterEditorState extends MusicBeatState
       };
     }
 
+    positionDropdown = toolbox.findComponent('positionDropdown', DropDown);
+
+    if (positionDropdown != null)
+    {
+      positionDropdown.onChange = function(event:UIEvent) {
+        if (populating) return;
+
+        characterType = switch (event.data?.text)
+        {
+          case 'dad': DAD;
+          case 'gf': GF;
+          default: BF;
+        };
+
+        loadCharacter(characterId);
+      };
+    }
+
+    // Left to themselves these open far wider than the control they belong to
+    // and lie across the screen.
+    for (dropdown in [characterDropdown, animationDropdown, positionDropdown])
+    {
+      if (dropdown == null) continue;
+
+      dropdown.dropdownWidth = 300;
+      dropdown.dropdownHeight = 260;
+    }
+
     var resetButton = toolbox.findComponent('resetOffsetButton', Button);
     if (resetButton != null) resetButton.onClick = function(event:MouseEvent) resetOffset();
 
@@ -239,14 +350,24 @@ class CharacterEditorState extends MusicBeatState
       return;
     }
 
+    loadStage();
+
     character.cameras = [camStage];
-    character.screenCenter();
-    add(character);
+
+    if (stage != null)
+    {
+      stage.addCharacter(character, characterType);
+    }
+    else
+    {
+      // No stage to stand on, so at least put it where it can be seen.
+      character.screenCenter();
+      add(character);
+    }
 
     animationNames = [for (animation in data.animations) animation.name];
 
-    camStage.zoom = 1;
-    camStage.scroll.set(0, 0);
+    lookAtCharacter();
 
     fillAnimationDropdown();
     populatePanel();
@@ -254,6 +375,54 @@ class CharacterEditorState extends MusicBeatState
     if (animationNames.length > 0) playAnimation(animationNames[0]);
 
     say('Loaded $id.');
+  }
+
+  /**
+   * Build the stage fresh.
+   *
+   * Rebuilding rather than swapping the character out of the old one: a stage
+   * places a character when it is added, and taking one back off again is
+   * more of its business than an editor should be reaching into.
+   */
+  function loadStage():Void
+  {
+    if (stage != null)
+    {
+      remove(stage);
+      stage = null;
+    }
+
+    stage = StageRegistry.instance.fetchEntry(STAGE_ID);
+
+    if (stage == null) return;
+
+    stage.revive();
+    ScriptEventDispatcher.callEvent(stage, new ScriptEvent(CREATE, false));
+
+    stage.cameras = [camStage];
+    add(stage);
+  }
+
+  function lookAtCharacter():Void
+  {
+    camStage.zoom = 0.7;
+
+    if (character == null)
+    {
+      camStage.scroll.set(0, 0);
+      return;
+    }
+
+    var middle = character.getMidpoint();
+    camStage.focusOn(middle);
+    middle.putWeak();
+  }
+
+  function replayAnimation():Void
+  {
+    if (character == null || animationName == '') return;
+
+    character.playAnimation(animationName, true);
   }
 
   function fillAnimationDropdown():Void
@@ -454,9 +623,12 @@ class CharacterEditorState extends MusicBeatState
 
     if (TouchUtil.justPressed)
     {
-      var onPanel = TouchUtil.touch.getWorldPosition(camUI);
-      var over = overPanel(onPanel.x, onPanel.y);
-      onPanel.putWeak();
+      var view = TouchUtil.touch.getWorldPosition(camUI);
+      var over = overPanel(view.x, view.y);
+      pressedAt.set(view.x, view.y);
+      view.putWeak();
+
+      pressWasDrag = false;
 
       if (!over)
       {
@@ -471,17 +643,31 @@ class CharacterEditorState extends MusicBeatState
 
     if (dragging && TouchUtil.pressed)
     {
-      var point = TouchUtil.touch.getWorldPosition(camStage);
-      setOffset(dragAnchor.x - point.x, dragAnchor.y - point.y);
-      point.putWeak();
+      var view = TouchUtil.touch.getWorldPosition(camUI);
+      var wandered = view.distanceTo(pressedAt);
+      view.putWeak();
+
+      // Until the finger has gone somewhere this might still turn out to be a
+      // tap, and moving the character on the way would undo itself anyway.
+      if (wandered > TAP_SLOP)
+      {
+        pressWasDrag = true;
+
+        var point = TouchUtil.touch.getWorldPosition(camStage);
+        setOffset(dragAnchor.x - point.x, dragAnchor.y - point.y);
+        point.putWeak();
+      }
     }
 
-    if (!TouchUtil.pressed) dragging = false;
-  }
+    if (!TouchUtil.pressed)
+    {
+      // Let go without having moved and you were asking to see the animation
+      // again, not to place the character. A pinch cancels the drag before it
+      // gets here, so moving the view never replays anything.
+      if (dragging && !pressWasDrag) replayAnimation();
 
-  function goBack():Void
-  {
-    FlxG.switchState(() -> new funkin.ui.debug.EditorHubState());
+      dragging = false;
+    }
   }
   #else
   function updateMouse():Void
@@ -492,7 +678,10 @@ class CharacterEditorState extends MusicBeatState
     {
       var view = FlxG.mouse.getViewPosition(camUI);
       var over = overPanel(view.x, view.y);
+      pressedAt.set(view.x, view.y);
       view.putWeak();
+
+      pressWasDrag = false;
 
       if (!over)
       {
@@ -507,12 +696,26 @@ class CharacterEditorState extends MusicBeatState
 
     if (dragging && FlxG.mouse.pressed)
     {
-      var point = FlxG.mouse.getWorldPosition(camStage);
-      setOffset(dragAnchor.x - point.x, dragAnchor.y - point.y);
-      point.putWeak();
+      var view = FlxG.mouse.getViewPosition(camUI);
+      var wandered = view.distanceTo(pressedAt);
+      view.putWeak();
+
+      if (wandered > TAP_SLOP)
+      {
+        pressWasDrag = true;
+
+        var point = FlxG.mouse.getWorldPosition(camStage);
+        setOffset(dragAnchor.x - point.x, dragAnchor.y - point.y);
+        point.putWeak();
+      }
     }
 
-    if (!FlxG.mouse.pressed) dragging = false;
+    if (!FlxG.mouse.pressed)
+    {
+      if (dragging && !pressWasDrag) replayAnimation();
+
+      dragging = false;
+    }
 
     if (FlxG.mouse.wheel != 0)
     {
@@ -521,6 +724,11 @@ class CharacterEditorState extends MusicBeatState
     }
   }
   #end
+
+  function goBack():Void
+  {
+    FlxG.switchState(() -> new funkin.ui.debug.EditorHubState());
+  }
 
   // -- saving -------------------------------------------------------------
 
