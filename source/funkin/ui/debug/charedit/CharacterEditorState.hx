@@ -238,6 +238,24 @@ class CharacterEditorState extends MusicBeatState
    */
   var toolboxShown:Bool = false;
 
+  /**
+   * Something to do once the toolkit has finished with the click that asked
+   * for it.
+   *
+   * Leaving the editor and reloading the assets both tear down every
+   * component HaxeUI is holding, and a menu item asking for either of them
+   * is asking from inside a pass that is still walking those components. It
+   * is the same mistake as writing to a dropdown from its own change
+   * handler, one step further along: by the time anything notices, the
+   * thing it was in the middle of is gone.
+   */
+  var afterThisFrame:Null<Void->Void> = null;
+
+  function later(action:Void->Void):Void
+  {
+    afterThisFrame = action;
+  }
+
   override function create():Void
   {
     FlxTransitionableState.skipNextTransIn = true;
@@ -309,7 +327,7 @@ class CharacterEditorState extends MusicBeatState
     wireMenuItem('menuNew', openNewCharacter);
     wireMenuItem('menuSave', save);
     wireMenuItem('menuReload', () -> loadCharacter(characterId));
-    wireMenuItem('menuExit', goBack);
+    wireMenuItem('menuExit', () -> later(goBack));
     wireMenuItem('menuResetOffset', resetOffset);
     wireMenuItem('menuReplay', replayAnimation);
     wireMenuItem('menuResetCamera', lookAtCharacter);
@@ -673,9 +691,11 @@ class CharacterEditorState extends MusicBeatState
 
     // The game only knows about files it has looked at, and it looked before
     // this one existed. Reloading takes the editor down with it, so which
-    // character to come back up on is left behind first.
+    // character to come back up on is left behind first — and the reload
+    // waits for the button press that asked for it to be over.
     pendingCharacterId = id;
-    reloadAssets();
+    sayNew('Made $id. Reloading...');
+    later(reloadAssets);
     #else
     sayNew('Making characters needs a filesystem.');
     #end
@@ -1002,6 +1022,16 @@ class CharacterEditorState extends MusicBeatState
   override function update(elapsed:Float):Void
   {
     super.update(elapsed);
+
+    if (afterThisFrame != null)
+    {
+      var action = afterThisFrame;
+      afterThisFrame = null;
+      action();
+
+      // Whatever that was, this may no longer be the state running.
+      return;
+    }
 
     #if mobile
     updateGestures();
