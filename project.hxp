@@ -1084,7 +1084,7 @@ class Project extends HXProject
 
     // Forcibly include all Funkin' classes in builds.
     // This prevents classes that are unused by the base game from being unavailable to HScript.
-    addHaxeMacro("include('funkin', true, ['funkin.mobile.*', 'funkin.ui.debug.anim.*', 'funkin.ui.debug.charting.*', 'funkin.ui.debug.stage.*', 'funkin.ui.debug.stageeditor.*', 'funkin.ui.haxeui.*'])");
+    addHaxeMacro("include('funkin', true, ['funkin.mobile.*', 'funkin.ui.debug.anim.*', 'funkin.ui.debug.charedit.*', 'funkin.ui.debug.charting.*', 'funkin.ui.debug.stage.*', 'funkin.ui.debug.stageeditor.*', 'funkin.ui.haxeui.*'])");
 
     if (isMobile())
     {
@@ -1108,6 +1108,10 @@ class Project extends HXProject
         addHaxeMacro("include('funkin.ui.debug.stage')");
         addHaxeMacro("include('funkin.ui.debug.stageeditor')");
       }
+
+      // The character editor builds its panel out of HaxeUI like the rest of
+      // them, so it is only compiled where HaxeUI is.
+      addHaxeMacro("include('funkin.ui.debug.charedit')");
 
       addHaxeMacro("include('funkin.ui.haxeui')");
 
