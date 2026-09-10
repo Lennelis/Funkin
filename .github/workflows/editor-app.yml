@@ -54,7 +54,8 @@ jobs:
             libasound2-dev libpulse-dev \
             libvlc-dev libvlccore-dev \
             gcc-multilib g++-multilib \
-            libwayland-dev libwayland-bin wayland-protocols libxkbcommon-dev
+            libwayland-dev libwayland-bin wayland-protocols libxkbcommon-dev \
+            libpipewire-0.3-dev
           # SDL generates its wayland protocol bindings at build time with
           # wayland-scanner, from the definitions in wayland-protocols. The
           # Dockerfile predates that and lists neither, so nothing generated
@@ -102,6 +103,25 @@ jobs:
             .haxelib/hxcpp/git/bin
           key: haxe-native-linux64-${{ hashFiles('hmm.json') }}
 
+      # Everything below was built on the assumption that lime cannot run at
+      # all without its native library, because `lime config` and `lime setup`
+      # both died on it. But those touch CFFI; `display` only reads the
+      # project file and prints a compiler command line, which may need
+      # nothing native at all. If it does not, the whole native build below is
+      # unnecessary.
+      - name: Try lime without its native tooling
+        id: probe
+        run: |
+          if haxelib run lime display android > build.hxml 2> probe.log; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "lime display works with no native tooling"
+            head -20 build.hxml
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "--- why not ---"
+            tail -20 probe.log
+          fi
+
       # Both of these come from git, so neither carries the compiled part
       # that its haxelib releases ship, and each in turn comes up and dies on
       # a native library that is not there. hxcpp is the bottom of it, since
@@ -112,7 +132,7 @@ jobs:
       # `lime rebuild` would have called. build-game.yml only gets away with
       # going through lime because its cache is never cold.
       - name: Build the native tooling
-        if: steps.cache-lime.outputs.cache-hit != 'true'
+        if: steps.probe.outputs.ok != 'true' && steps.cache-lime.outputs.cache-hit != 'true'
         run: |
           # haxelib reports the library root for some libraries and its src/
           # directory for others, so look for the file rather than assume.
@@ -167,6 +187,7 @@ jobs:
           ls -la "$lime_root/ndll/Linux64"
 
       - name: Set up lime
+        if: steps.probe.outputs.ok != 'true'
         run: |
           haxelib --always run lime setup
           haxelib run lime rebuild hxcpp
@@ -174,6 +195,7 @@ jobs:
       # The runner already has an SDK and NDK, so this points lime at them
       # rather than installing anything.
       - name: Point lime at the runner's Android SDK
+        if: steps.probe.outputs.ok != 'true'
         run: |
           NDK=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -1)
           echo "Using SDK $ANDROID_HOME and NDK $NDK"
@@ -183,6 +205,7 @@ jobs:
           haxelib run lime config ANDROID_SETUP true
 
       - name: Work out the build
+        if: steps.probe.outputs.ok != 'true'
         run: |
           haxelib run lime display android > build.hxml
           echo "--- build.hxml ---"
