@@ -243,6 +243,10 @@ jobs:
       # and the message that actually explains it is at the top.
       - name: Typecheck
         run: |
+          # Without this the compiler colours its output, and every frame
+          # line starts with an escape sequence rather than whitespace, which
+          # is what defeated the last attempt at filtering these.
+          export NO_COLOR=1
           if haxe build.hxml --no-output > typecheck.log 2>&1; then
             echo "typechecked clean"
           else
@@ -250,8 +254,9 @@ jobs:
             # so both ends of it are call frames. Strip the frames, the echoed
             # source lines and the carets, and what is left is the message.
             echo "--- messages ---"
-            grep -vE 'Called from here|^[[:space:]]*$|^[[:space:]]*[0-9]+ \||^[[:space:]]*\||^[[:space:]]*->' \
-              typecheck.log | head -40
+            sed -r 's/\x1b\[[0-9;]*[a-zA-Z]//g' typecheck.log \
+              | grep -vE 'Called from here|^[[:space:]]*$|^[[:space:]]*[0-9]+ \||^[[:space:]]*\||^[[:space:]]*->' \
+              | head -40
             echo "--- ($(wc -l < typecheck.log) lines total) ---"
             exit 1
           fi
