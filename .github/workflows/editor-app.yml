@@ -85,14 +85,31 @@ jobs:
           path: .haxelib/lime/git/ndll/Linux64
           key: haxe-lime-linux64-${{ hashFiles('hmm.json') }}
 
+      # This has to be the first lime command run, not a later one: every
+      # other lime command loads CFFI and dies on the missing library, and
+      # `rebuild` is the one the error message itself points at. build-game.yml
+      # runs setup before this, which works only because its cache is never
+      # cold.
+      - name: Build lime's native tooling
+        if: steps.cache-lime.outputs.cache-hit != 'true'
+        run: |
+          if ! haxelib run lime rebuild cpp -64; then
+            # If rebuilding cannot bootstrap itself either, take the ndll out
+            # of a haxelib release, which is what the error message suggests
+            # and what those releases carry that a git checkout does not.
+            echo "::warning::lime rebuild failed, copying the ndll from a release instead"
+            haxelib --global --never install lime
+            release=$(haxelib --global path lime | grep -m1 '^/')
+            echo "release lime at $release"
+            mkdir -p .haxelib/lime/git/ndll
+            cp -r "$release"/ndll/. .haxelib/lime/git/ndll/
+          fi
+          ls -la .haxelib/lime/git/ndll/Linux64 || true
+
       - name: Set up lime
         run: |
           haxelib --always run lime setup
           haxelib run lime rebuild hxcpp
-
-      - name: Build lime's native tooling
-        if: steps.cache-lime.outputs.cache-hit != 'true'
-        run: haxelib run lime rebuild cpp -64
 
       # The runner already has an SDK and NDK, so this points lime at them
       # rather than installing anything.
