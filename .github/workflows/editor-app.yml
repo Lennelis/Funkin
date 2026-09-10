@@ -278,7 +278,7 @@ jobs:
             # source lines and the carets, and what is left is the message.
             echo "--- messages ---"
             sed -r 's/\x1b\[[0-9;]*[a-zA-Z]//g' typecheck.log \
-              | grep -vE 'Called from here|^[[:space:]]*$|^[[:space:]]*[0-9]+ \||^[[:space:]]*\||^[[:space:]]*->' \
+              | grep -vE 'Called from here|^[[:space:]]*$|^[[:space:]]*[0-9]+ \||^[[:space:]]*\|[[:space:]]*\^+[[:space:]]*$|^[[:space:]]*->' \
               | head -40
             echo "--- ($(wc -l < typecheck.log) lines total) ---"
             exit 1

@@ -83,7 +83,12 @@ class Bopper extends StageProp implements IPlayStateScriptedClass
   }
 
   @:allow(funkin.ui.debug.anim.DebugBoundingState)
+  // Naming a type here makes the compiler resolve it, so this has to be
+  // conditional on the same thing the editor itself is; otherwise a build
+  // without the editors still drags it in and fails on its imports.
+  #if FEATURE_HAXEUI
   @:allow(funkin.ui.debug.charedit.CharacterEditorState)
+  #end
   var animOffsets(default, set):Array<Float> = [0, 0];
 
   public var originalPosition:FlxPoint = new FlxPoint(0, 0);
