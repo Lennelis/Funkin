@@ -204,6 +204,25 @@ jobs:
           haxelib run lime config JAVA_HOME "$JAVA_HOME"
           haxelib run lime config ANDROID_SETUP true
 
+      # assets/ is a submodule of the crew's asset repository, which this
+      # token cannot reach and which is 2.5GB besides. A typecheck never reads
+      # an asset — only lime's project parsing insists the paths exist — so
+      # this puts an empty skeleton where they would be, derived from
+      # project.hxp so it stays right as that file changes.
+      #
+      # Building an actual APK would need the real assets. This is only enough
+      # to let Haxe look at the source.
+      - name: Stand in for the asset submodule
+        if: steps.probe.outputs.ok != 'true'
+        run: |
+          grep -o 'assets/[A-Za-z0-9_./-]*' project.hxp | sort -u | while read -r path; do
+            case "$path" in
+              *.*) mkdir -p "$(dirname "$path")"; : > "$path" ;;
+              *)   mkdir -p "$path" ;;
+            esac
+          done
+          echo "made $(find assets -type d | wc -l) asset directories"
+
       - name: Work out the build
         if: steps.probe.outputs.ok != 'true'
         run: |
