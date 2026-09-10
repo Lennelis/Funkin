@@ -39,6 +39,14 @@ jobs:
         with:
           haxe-version: 4.3.7
 
+      # What lime needs to build its own native tooling below.
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ \
+            libx11-dev libxi-dev libxext-dev libxinerama-dev libxrandr-dev \
+            libgl-dev libgl1-mesa-dev libasound2-dev libpulse-dev
+
       # The game needs the crew's forks of both haxelib and hmm; the stock
       # ones cannot install this dependency set.
       - name: Set up haxelib and hmm
@@ -65,8 +73,28 @@ jobs:
         if: steps.cache-hmm.outputs.cache-hit != 'true'
         run: haxelib --global run hmm install -q
 
-      # lime refuses to look at an Android target until it has been told where
-      # the SDK is. The runner already has one, so this is pointing at it
+      # lime comes from git here, and a git checkout of lime has no lime.ndll
+      # in it — that ships only with its haxelib releases. Every lime command
+      # that touches CFFI needs one, so it gets built. This is the slow step,
+      # hence the cache; build-game.yml does the same thing for the same
+      # reason.
+      - name: Restore lime's native tooling
+        id: cache-lime
+        uses: actions/cache@v4
+        with:
+          path: .haxelib/lime/git/ndll/Linux64
+          key: haxe-lime-linux64-${{ hashFiles('hmm.json') }}
+
+      - name: Set up lime
+        run: |
+          haxelib --always run lime setup
+          haxelib run lime rebuild hxcpp
+
+      - name: Build lime's native tooling
+        if: steps.cache-lime.outputs.cache-hit != 'true'
+        run: haxelib run lime rebuild cpp -64
+
+      # The runner already has an SDK and NDK, so this points lime at them
       # rather than installing anything.
       - name: Point lime at the runner's Android SDK
         run: |
