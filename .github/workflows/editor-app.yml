@@ -1,0 +1,87 @@
+# Typechecks the game for Android on a GitHub-hosted runner.
+#
+# The repository's own build-game.yml runs on self-hosted runners with a
+# private image, and builds Windows and macOS. This is a smaller thing with a
+# different job: prove the source still compiles for the phone, on a runner
+# anyone can use, without waiting for a full native build.
+#
+# It stops at --no-output, so Haxe typechecks everything and then throws the
+# C++ away. That needs no NDK and takes minutes rather than the best part of an
+# hour, which is what makes it usable as a check on every push.
+
+name: Typecheck the editor app
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'source/**'
+      - 'project.hxp'
+      - 'hmm.json'
+      - '.github/workflows/editor-app.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: krdlab/setup-haxe@v1
+        with:
+          haxe-version: 4.3.7
+
+      # The game needs the crew's forks of both haxelib and hmm; the stock
+      # ones cannot install this dependency set.
+      - name: Set up haxelib and hmm
+        run: |
+          haxelib fixrepo --global || true
+          haxelib --debug --never --global install haxelib 4.1.0
+          haxelib --global set haxelib 4.1.0
+          haxelib --global remove haxelib git || true
+          haxelib --global remove hmm || true
+          rm -rf .haxelib
+          haxelib --never --global git haxelib https://github.com/FunkinCrew/haxelib.git funkin-patches --skip-dependencies
+          haxelib --never --global git hmm https://github.com/FunkinCrew/hmm funkin-patches
+          haxelib --never newrepo
+          haxelib version
+
+      - name: Restore dependencies
+        id: cache-hmm
+        uses: actions/cache@v4
+        with:
+          path: .haxelib
+          key: haxe-hmm-${{ runner.os }}-${{ hashFiles('hmm.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-hmm.outputs.cache-hit != 'true'
+        run: haxelib --global run hmm install -q
+
+      # lime refuses to look at an Android target until it has been told where
+      # the SDK is. The runner already has one, so this is pointing at it
+      # rather than installing anything.
+      - name: Point lime at the runner's Android SDK
+        run: |
+          NDK=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -1)
+          echo "Using SDK $ANDROID_HOME and NDK $NDK"
+          haxelib run lime config ANDROID_SDK "$ANDROID_HOME"
+          haxelib run lime config ANDROID_NDK_ROOT "$NDK"
+          haxelib run lime config JAVA_HOME "$JAVA_HOME"
+          haxelib run lime config ANDROID_SETUP true
+
+      - name: Work out the build
+        run: |
+          haxelib run lime display android > build.hxml
+          echo "--- build.hxml ---"
+          head -40 build.hxml
+
+      - name: Typecheck
+        run: haxe build.hxml --no-output
