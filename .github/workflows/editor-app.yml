@@ -39,16 +39,25 @@ jobs:
         with:
           haxe-version: 4.3.7
 
-      # What lime needs to build its own native tooling below.
+      # Taken from build/Dockerfile, which is the authoritative list of what
+      # this build needs. A shorter guess got as far as compiling lime and
+      # then died on dbus/dbus.h.
       - name: Install native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ \
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libc6-dev libffi-dev libdbus-1-dev libudev-dev libgbm-dev \
             libx11-dev libxi-dev libxext-dev libxinerama-dev libxrandr-dev \
-            libgl-dev libgl1-mesa-dev libasound2-dev libpulse-dev
+            libxcursor-dev libxss-dev \
+            libgl-dev libgl1-mesa-dev libglu1-mesa-dev libdrm-dev \
+            libasound2-dev libpulse-dev \
+            libvlc-dev libvlccore-dev \
+            gcc-multilib g++-multilib
+          # The same libffi symlink the Dockerfile makes.
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libffi.so.8 \
+            /usr/lib/x86_64-linux-gnu/libffi.so.6 || true
 
-      # The game needs the crew's forks of both haxelib and hmm; the stock
-      # ones cannot install this dependency set.
       - name: Set up haxelib and hmm
         run: |
           haxelib fixrepo --global || true
@@ -116,29 +125,13 @@ jobs:
             return 1
           }
 
-          # Look before guessing: the last few attempts each fixed a
-          # different theory about how these checkouts are laid out.
-          for lib in hxcpp lime; do
-            base=$(haxelib path "$lib" | grep -m1 '^/')
-            echo "=== $lib: haxelib says $base ==="
-            root=${base%/}
-            [ -e "$root/haxelib.json" ] || root=$(dirname "$root")
-            echo "--- $root ---"
-            ls -a "$root" || true
-            echo "--- .git is: ---"
-            ls -ld "$root/.git" || true
-            file "$root/.git" || true
-            echo "--- .gitmodules ---"
-            cat "$root/.gitmodules" 2>/dev/null || echo "(none)"
-            echo "--- submodule status ---"
-            git -C "$root" submodule status || true
-            echo "--- project/ ---"
-            ls "$root/project" || true
-          done
-
           hxcpp_root=$(find_root hxcpp project/build.n)
           echo "--- building hxcpp's binaries in $hxcpp_root ---"
-          (cd "$hxcpp_root/project" && yes | neko build.n) || echo "::warning::hxcpp build failed"
+          # build.n shells out to the hxcpp tool, which finds its binaries
+          # missing and offers to build them. That offer is the only thing
+          # that breaks the circle, and there is no terminal here to accept
+          # it. No submodule work is needed; this bootstraps itself.
+          (cd "$hxcpp_root/project" && yes | neko build.n)
 
           lime_root=$(find_root lime project/Build.xml)
           echo "--- building lime.ndll in $lime_root ---"
