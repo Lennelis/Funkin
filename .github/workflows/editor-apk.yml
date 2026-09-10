@@ -1,0 +1,154 @@
+# Builds the editor app as an installable APK.
+#
+# Separate from the typecheck because it is a different kind of job: the
+# typecheck stops at --no-output and runs in about two minutes, while this
+# compiles the game to native code and needs the real assets, which the
+# typecheck deliberately avoids.
+#
+# Only arm64 is built. Leaving armv7 out roughly halves the compile, and
+# nothing that can run this has been sold in years.
+
+name: Build the editor app
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'source/**'
+      - 'project.hxp'
+      - '.github/workflows/editor-apk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: krdlab/setup-haxe@v1
+        with:
+          haxe-version: 4.3.7
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libc6-dev libffi-dev libdbus-1-dev libudev-dev libgbm-dev \
+            libx11-dev libxi-dev libxext-dev libxinerama-dev libxrandr-dev \
+            libxcursor-dev libxss-dev \
+            libgl-dev libgl1-mesa-dev libglu1-mesa-dev libdrm-dev \
+            libasound2-dev libpulse-dev \
+            libvlc-dev libvlccore-dev \
+            gcc-multilib g++-multilib \
+            libwayland-dev libwayland-bin wayland-protocols libxkbcommon-dev \
+            libpipewire-0.3-dev
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libffi.so.8 \
+            /usr/lib/x86_64-linux-gnu/libffi.so.6 || true
+
+      - name: Set up haxelib and hmm
+        run: |
+          haxelib fixrepo --global || true
+          haxelib --debug --never --global install haxelib 4.1.0
+          haxelib --global set haxelib 4.1.0
+          haxelib --global remove haxelib git || true
+          haxelib --global remove hmm || true
+          rm -rf .haxelib
+          haxelib --never --global git haxelib https://github.com/FunkinCrew/haxelib.git funkin-patches --skip-dependencies
+          haxelib --never --global git hmm https://github.com/FunkinCrew/hmm funkin-patches
+          haxelib --never newrepo
+
+      - name: Restore dependencies
+        id: cache-hmm
+        uses: actions/cache/restore@v4
+        with:
+          path: .haxelib
+          key: haxe-hmm-${{ runner.os }}-${{ hashFiles('hmm.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-hmm.outputs.cache-hit != 'true'
+        run: haxelib --global run hmm install -q
+
+      - name: Restore native tooling
+        id: cache-lime
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .haxelib/lime/git/ndll
+            .haxelib/hxcpp/git/bin
+          key: haxe-native-linux64-${{ hashFiles('hmm.json') }}
+
+      # Same bootstrap as the typecheck; see editor-app.yml for why it has to
+      # go through hxcpp rather than through lime.
+      - name: Build the native tooling
+        if: steps.cache-lime.outputs.cache-hit != 'true'
+        run: |
+          find_root() {
+            local base
+            base=$(haxelib path "$1" | grep -m1 '^/')
+            base=${base%/}
+            for candidate in "$base" "$(dirname "$base")"; do
+              if [ -e "$candidate/$2" ]; then echo "$candidate"; return 0; fi
+            done
+            return 1
+          }
+          hxcpp_root=$(find_root hxcpp project/build.n)
+          (cd "$hxcpp_root/project" && yes | neko build.n) || true
+          lime_root=$(find_root lime project/Build.xml)
+          sdl="$lime_root/project/lib/sdl"
+          out="$sdl/wayland-generated-protocols"
+          mkdir -p "$out"
+          for xml in $(find /usr/share/wayland /usr/share/wayland-protocols \
+                            "$sdl/wayland-protocols" -name '*.xml' 2>/dev/null); do
+            base=$(basename "$xml" .xml)
+            wayland-scanner client-header "$xml" "$out/$base-client-protocol.h" 2>/dev/null || true
+            wayland-scanner private-code  "$xml" "$out/$base-client-protocol.c" 2>/dev/null || true
+          done
+          (cd "$lime_root/project" && yes | haxelib run hxcpp Build.xml -Dlinux -DHXCPP_M64)
+
+      - name: Set up lime
+        run: |
+          haxelib --always run lime setup
+          haxelib run lime rebuild hxcpp
+
+      - name: Point lime at the runner's Android SDK
+        run: |
+          NDK=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -1)
+          haxelib run lime config ANDROID_SDK "$ANDROID_HOME"
+          haxelib run lime config ANDROID_NDK_ROOT "$NDK"
+          haxelib run lime config JAVA_HOME "$JAVA_HOME"
+          haxelib run lime config ANDROID_SETUP true
+
+      # A real build needs the real assets, not the empty skeleton the
+      # typecheck gets away with. The fork is public, so no token is needed.
+      - name: Fetch the assets
+        run: |
+          rm -rf assets
+          git clone --depth 1 https://github.com/Lennelis/funkin.assets assets
+          du -sh assets
+
+      - name: Build
+        run: haxelib run lime build android -release -DEDITOR_APP -DEXCLUDE_ARMV7 -v
+
+      - name: Find the APK
+        id: apk
+        run: |
+          apk=$(find export -name '*.apk' | head -1)
+          echo "path=$apk" >> "$GITHUB_OUTPUT"
+          ls -la "$apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: funkin-editor-app-apk
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 7
