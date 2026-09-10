@@ -419,7 +419,7 @@ class CharacterEditorState extends MusicBeatState
       left += dialog.width + 12;
     }
 
-    var select = openWindow('windowCharacter', 'ui/character-editor/character-select', place);
+    var select = openWindow('windowCharacter', 'ui/character-editor/character-select-view', place);
     var animation = openWindow('windowAnimation', 'ui/character-editor/animation-view', place);
     var characterData = openWindow('windowCharacterData', 'ui/character-editor/character-data-view', place);
     var healthIcon = openWindow('windowHealthIcon', 'ui/character-editor/health-icon-view', place);
@@ -611,14 +611,16 @@ class CharacterEditorState extends MusicBeatState
    */
   function healthIcon():HealthIconData
   {
-    if (data == null) return {id: null, shouldBop: true, scale: 1.0, flipX: false, isPixel: false, offsets: [0, 25]};
+    if (data == null) return blankHealthIcon();
 
-    if (data.healthIcon == null)
-    {
-      data.healthIcon = {id: null, shouldBop: true, scale: 1.0, flipX: false, isPixel: false, offsets: [0, 25]};
-    }
+    if (data.healthIcon == null) data.healthIcon = blankHealthIcon();
 
     return data.healthIcon;
+  }
+
+  static function blankHealthIcon():HealthIconData
+  {
+    return {id: null, shouldBop: true, scale: 1.0, flipX: false, isPixel: false, offsets: [0.0, 25.0]};
   }
 
   /**
