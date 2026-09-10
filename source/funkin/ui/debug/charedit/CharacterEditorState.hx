@@ -326,7 +326,7 @@ class CharacterEditorState extends MusicBeatState
 
     wireMenuItem('menuNew', openNewCharacter);
     wireMenuItem('menuSave', save);
-    wireMenuItem('menuReload', () -> loadCharacter(characterId));
+    wireMenuItem('menuReload', () -> loadCharacter(characterId, true));
     wireMenuItem('menuExit', () -> later(goBack));
     wireMenuItem('menuResetOffset', resetOffset);
     wireMenuItem('menuReplay', replayAnimation);
@@ -445,17 +445,27 @@ class CharacterEditorState extends MusicBeatState
       for (id in characterIds)
         characterDropdown.dataSource.add({text: id});
 
+      // Nothing on being told what it already shows. `populating` is not
+      // enough on its own: a dropdown that has been opened once carries a
+      // list view underneath it, and setting the index goes through that
+      // list, which reports the change a frame later — by which time the
+      // flag has been put down again. Left to itself that is a loop, since
+      // loading a character names the row it came from.
       characterDropdown.onChange = function(event:UIEvent) {
-        if (populating) return;
-        loadCharacter(event.data?.text);
+        var picked:Null<String> = event.data?.text;
+        if (populating || picked == null || picked == characterId) return;
+
+        loadCharacter(picked);
       };
     }
 
     if (animationDropdown != null)
     {
       animationDropdown.onChange = function(event:UIEvent) {
-        if (populating) return;
-        playAnimation(event.data?.text);
+        var picked:Null<String> = event.data?.text;
+        if (populating || picked == null || picked == animationName) return;
+
+        playAnimation(picked);
       };
     }
 
@@ -466,14 +476,20 @@ class CharacterEditorState extends MusicBeatState
       positionDropdown.onChange = function(event:UIEvent) {
         if (populating) return;
 
-        characterType = switch (event.data?.text)
+        var picked:CharacterType = switch (event.data?.text)
         {
           case 'dad': DAD;
           case 'gf': GF;
           default: BF;
         };
 
-        loadCharacter(characterId);
+        if (picked == characterType) return;
+
+        characterType = picked;
+
+        // The same character, but standing somewhere else, so this one is
+        // worth doing again.
+        loadCharacter(characterId, true);
       };
     }
 
@@ -722,7 +738,11 @@ class CharacterEditorState extends MusicBeatState
 
   // -- the character ------------------------------------------------------
 
-  function loadCharacter(id:Null<String>):Void
+  /**
+   * @param force Load it again even if it is the one already up, for when
+   *   something other than which character it is has changed.
+   */
+  function loadCharacter(id:Null<String>, force:Bool = false):Void
   {
     if (id == null || id == '')
     {
@@ -730,24 +750,47 @@ class CharacterEditorState extends MusicBeatState
       return;
     }
 
-    if (character != null)
+    // Rebuilding the character and the stage is not cheap, and being asked
+    // for the one already standing there is a thing that happens: a control
+    // reporting the value it was just given reads no differently from a
+    // person choosing it.
+    if (!force && id == characterId && character != null) return;
+
+    // The stage owns what it was given and destroys it as it goes, so a
+    // character standing on one is not the editor's to take down. One with
+    // no stage under it is.
+    if (stage != null)
+    {
+      unloadStage();
+    }
+    else if (character != null)
     {
       remove(character);
       character.destroy();
-      character = null;
     }
+
+    character = null;
 
     characterId = id;
     data = CharacterDataParser.fetchCharacterData(id);
-    character = CharacterDataParser.fetchCharacter(id, true);
 
-    if (character == null || data == null)
+    if (data == null)
     {
       say('Could not load $id.');
       return;
     }
 
+    // The stage first, while there is no character for taking it down to
+    // throw away by accident.
     loadStage();
+
+    character = CharacterDataParser.fetchCharacter(id, true);
+
+    if (character == null)
+    {
+      say('Could not build $id.');
+      return;
+    }
 
     character.cameras = [camStage];
 
@@ -794,11 +837,7 @@ class CharacterEditorState extends MusicBeatState
    */
   function loadStage():Void
   {
-    if (stage != null)
-    {
-      remove(stage);
-      stage = null;
-    }
+    unloadStage();
 
     stage = StageRegistry.instance.fetchEntry(STAGE_ID);
 
@@ -809,6 +848,29 @@ class CharacterEditorState extends MusicBeatState
 
     stage.cameras = [camStage];
     add(stage);
+  }
+
+  /**
+   * Put the stage away.
+   *
+   * The registry hands out one stage and hands out the same one every time,
+   * so a stage that is merely dropped and fetched again is the same object
+   * with everything still on it — and building it once more builds a second
+   * set of props on top of the first, and a third, until the frame rate says
+   * so. Destroying it is what empties it, and takes whatever was standing on
+   * it along too.
+   */
+  function unloadStage():Void
+  {
+    if (stage == null) return;
+
+    ScriptEventDispatcher.callEvent(stage, new ScriptEvent(DESTROY, false));
+    remove(stage);
+    stage.kill();
+    stage = null;
+
+    // Destroyed along with the stage it was standing on.
+    character = null;
   }
 
   function lookAtCharacter():Void
@@ -1195,6 +1257,16 @@ class CharacterEditorState extends MusicBeatState
     }
   }
   #end
+
+  override function destroy():Void
+  {
+    // The registry keeps its stage between visits, so anything still
+    // standing on it when the editor closes is still standing on it the
+    // next time anything builds it — a song included.
+    unloadStage();
+
+    super.destroy();
+  }
 
   function goBack():Void
   {
