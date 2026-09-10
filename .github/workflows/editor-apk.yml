@@ -136,6 +136,19 @@ jobs:
           git clone --depth 1 https://github.com/Lennelis/funkin.assets assets
           du -sh assets
 
+      # The art submodule carries the launcher icons and one file that gets
+      # embedded as an asset. It is declared in .gitmodules, so this fetches
+      # what the project itself says it needs rather than inventing it.
+      - name: Fetch the art
+        run: |
+          if git submodule update --init --depth 1 art; then
+            du -sh art
+          else
+            echo "::warning::art submodule unavailable; standing in for it"
+            mkdir -p art/icons/android
+            : > art/readme.txt
+          fi
+
       - name: Build
         run: haxelib run lime build android -release -DEDITOR_APP -DEXCLUDE_ARMV7 -v
 
