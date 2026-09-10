@@ -232,6 +232,12 @@ class CharacterEditorState extends MusicBeatState
    */
   var menubarHeight:Float = 0;
 
+  /**
+   * Whether the panel is up, since a hidden dialog is one that has been taken
+   * off the screen rather than one carrying a flag.
+   */
+  var toolboxShown:Bool = false;
+
   override function create():Void
   {
     FlxTransitionableState.skipNextTransIn = true;
@@ -289,8 +295,11 @@ class CharacterEditorState extends MusicBeatState
 
     if (menubar == null) return;
 
+    // Through the toolkit rather than added to the state directly: HaxeUI
+    // adds a component to the state itself when it takes one, so doing both
+    // leaves it in the state's list twice.
+    Screen.instance.addComponent(menubar);
     menubar.cameras = [camUI];
-    add(menubar);
 
     // The bar itself still spans the screen, so it covers the corners rather
     // than stopping short of them; it is the words inside that move in.
@@ -350,9 +359,37 @@ class CharacterEditorState extends MusicBeatState
     sprite.scrollFactor.set(0, 0);
   }
 
+  /**
+   * Put the panel where it belongs.
+   *
+   * `left` and `top` rather than `x` and `y`, because a dialog recentres
+   * itself a couple of frames after being shown and those are the two values
+   * it checks before deciding it knows better.
+   */
+  function placeToolbox():Void
+  {
+    if (toolbox == null) return;
+
+    toolbox.left = SCREEN_INSET;
+    toolbox.top = menubarHeight + 12;
+  }
+
   function togglePanel():Void
   {
-    if (toolbox != null) toolbox.hidden = !toolbox.hidden;
+    if (toolbox == null) return;
+
+    toolboxShown = !toolboxShown;
+
+    if (toolboxShown)
+    {
+      toolbox.showDialog(false);
+      toolbox.cameras = [camUI];
+      placeToolbox();
+    }
+    else
+    {
+      toolbox.hide();
+    }
   }
 
   function buildToolbox():Void
@@ -361,12 +398,17 @@ class CharacterEditorState extends MusicBeatState
 
     if (toolbox == null) return;
 
-    toolbox.cameras = [camUI];
     toolbox.closable = false;
-    add(toolbox);
+
+    // Closing a dialog destroys it unless it is told not to, and this one has
+    // to survive being hidden and shown again. Showing it is also what puts
+    // it on screen: adding it to the state as well would put it there twice,
+    // and hiding it would then only take one of them away.
+    toolbox.destroyOnClose = false;
     toolbox.showDialog(false);
-    toolbox.x = SCREEN_INSET;
-    toolbox.y = menubarHeight + 12;
+    toolbox.cameras = [camUI];
+    placeToolbox();
+    toolboxShown = true;
 
     characterDropdown = toolbox.findComponent('characterDropdown', DropDown);
     animationDropdown = toolbox.findComponent('animationDropdown', DropDown);
@@ -449,13 +491,10 @@ class CharacterEditorState extends MusicBeatState
 
     if (newCharacterDialog == null) return;
 
-    newCharacterDialog.cameras = [camUI];
-    add(newCharacterDialog);
-    newCharacterDialog.showDialog(false);
-    newCharacterDialog.validateNow();
-    newCharacterDialog.x = Math.max(SCREEN_INSET, (FlxG.width - newCharacterDialog.width) / 2);
-    newCharacterDialog.y = menubarHeight + 12;
-    newCharacterDialog.hidden = true;
+    // Not shown yet — showing a dialog is what puts it on screen, and this
+    // one waits for the menu item. It does have to survive being closed,
+    // though, or the second time round it is a destroyed component.
+    newCharacterDialog.destroyOnClose = false;
 
     sheetDropdown = newCharacterDialog.findComponent('sheetDropdown', DropDown);
     sheetPathLabel = newCharacterDialog.findComponent('sheetPathLabel', Label);
@@ -512,16 +551,24 @@ class CharacterEditorState extends MusicBeatState
     if (newCharacterDialog == null) return;
 
     makeModDirs();
+
+    newCharacterDialog.showDialog(false);
+    newCharacterDialog.cameras = [camUI];
+
+    // `left` and `top` rather than `x` and `y`: a dialog recentres itself a
+    // couple of frames after it is shown, and those are the two it checks
+    // before deciding it knows better.
+    newCharacterDialog.left = Math.max(SCREEN_INSET, (FlxG.width - newCharacterDialog.width) / 2);
+    newCharacterDialog.top = menubarHeight + 12;
+
     rescanSheets();
 
     if (sheetPathLabel != null) sheetPathLabel.text = sheetFolder();
-
-    newCharacterDialog.hidden = false;
   }
 
   function closeNewCharacter():Void
   {
-    if (newCharacterDialog != null) newCharacterDialog.hidden = true;
+    if (newCharacterDialog != null) newCharacterDialog.hide();
   }
 
   /**
@@ -782,18 +829,34 @@ class CharacterEditorState extends MusicBeatState
   /**
    * Show a row as the chosen one.
    *
-   * A dropdown that has had its rows swapped out under it keeps the index it
-   * had and so decides nothing has changed, and comes up blank. Standing it
-   * down first makes the second assignment land.
+   * Left until the next frame on purpose. Most of the calls to this come,
+   * one way or another, from a dropdown's own change handler, which HaxeUI
+   * runs in the middle of validating that dropdown; writing to it there is
+   * changing a component while it is being validated, which the toolkit
+   * catches as a possible infinite loop and turns into a crash. By the next
+   * frame the validation pass it came from is over.
    */
   function selectInDropdown(dropdown:Null<DropDown>, index:Int):Void
   {
     if (dropdown == null || index < 0) return;
 
-    populating = true;
-    dropdown.selectedIndex = -1;
-    dropdown.selectedIndex = index;
-    populating = false;
+    haxe.ui.Toolkit.callLater(function() {
+      // The editor may be long gone by now: making a character reloads the
+      // assets, which rebuilds the state, and anything left over from the
+      // old one is pointing at components that were thrown away with it.
+      if (FlxG.state != this) return;
+
+      populating = true;
+
+      // A dropdown whose rows were swapped out under it keeps the index it
+      // had and decides nothing has changed, and comes up blank. Standing it
+      // down first makes the assignment land.
+      if (dropdown.selectedIndex == index) dropdown.selectedIndex = -1;
+
+      dropdown.selectedIndex = index;
+
+      populating = false;
+    });
   }
 
   function playAnimation(name:Null<String>):Void
