@@ -120,6 +120,14 @@ jobs:
           haxelib --always run lime setup
           haxelib run lime rebuild hxcpp
 
+      - name: Point lime at the runner's Android SDK
+        run: |
+          NDK=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -1)
+          haxelib run lime config ANDROID_SDK "$ANDROID_HOME"
+          haxelib run lime config ANDROID_NDK_ROOT "$NDK"
+          haxelib run lime config JAVA_HOME "$JAVA_HOME"
+          haxelib run lime config ANDROID_SETUP true
+
       # The Linux library above is the tooling that runs the build. The app
       # links against a different one, built for the phone with the NDK, and
       # a git checkout of lime has neither. This is the long part of the job,
@@ -143,14 +151,6 @@ jobs:
         with:
           path: .haxelib/lime/git/ndll/Android
           key: haxe-lime-android-arm64-${{ hashFiles('hmm.json') }}
-
-      - name: Point lime at the runner's Android SDK
-        run: |
-          NDK=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -1)
-          haxelib run lime config ANDROID_SDK "$ANDROID_HOME"
-          haxelib run lime config ANDROID_NDK_ROOT "$NDK"
-          haxelib run lime config JAVA_HOME "$JAVA_HOME"
-          haxelib run lime config ANDROID_SETUP true
 
       # A real build needs the real assets, not the empty skeleton the
       # typecheck gets away with. The fork is public, so no token is needed.
