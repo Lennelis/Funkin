@@ -62,6 +62,24 @@ class CharacterEditorState extends MusicBeatState
   static final MOD_ID:String = 'editor';
 
   /**
+   * Where a sprite sheet has to be for the editor to find it.
+   *
+   * Inside the mod the editor writes to, so a character made here and the
+   * sheet it was made from stay together, and so the folder is one the app
+   * can be sure it may write to.
+   */
+  static final SHEET_DIR:String = 'mods/editor/images/characters';
+
+  /**
+   * Which character to come up on after the editor has been rebuilt.
+   *
+   * Picking up a file that was not there when the game started means
+   * reloading the assets, and that takes the editor with it, so the one
+   * thing worth keeping is carried across by hand.
+   */
+  static var pendingCharacterId:Null<String> = null;
+
+  /**
    * The stage a character is shown on. The one the game opens on, so what you
    * see here is what most songs will show.
    */
@@ -126,6 +144,19 @@ class CharacterEditorState extends MusicBeatState
   var danceEveryStepper:Null<NumberStepper> = null;
   var cameraXStepper:Null<NumberStepper> = null;
   var cameraYStepper:Null<NumberStepper> = null;
+
+  // -- making a character out of a sprite sheet ---------------------------
+
+  var newCharacterDialog:Null<CollapsibleDialog> = null;
+  var sheetDropdown:Null<DropDown> = null;
+  var sheetPathLabel:Null<Label> = null;
+  var sheetSummaryLabel:Null<Label> = null;
+  var newCharacterStatus:Null<Label> = null;
+
+  /**
+   * The sheets sitting in `SHEET_DIR`, in the order the dropdown lists them.
+   */
+  var sheetNames:Array<String> = [];
 
   /**
    * Set while the panel is being filled in from a character, so that changing
@@ -208,14 +239,9 @@ class CharacterEditorState extends MusicBeatState
 
     // The same green as the screen this was opened from, so the app reads as
     // one thing rather than as the game with an editor bolted on.
-    var backdrop = new FlxSprite().loadGraphic(Paths.image('menuDesat'));
-    backdrop.color = 0xFF4CAF50;
-    backdrop.setGraphicSize(Std.int(backdrop.width * 1.1 * FullScreenScaleMode.wideScale.x));
-    backdrop.updateHitbox();
-    backdrop.screenCenter();
-    backdrop.scrollFactor.set(0, 0);
-    add(backdrop);
-    bg = backdrop;
+    bg = new FlxSprite();
+    styleBackdrop(bg);
+    add(bg);
 
     camStage = new FunkinCamera('camStage');
     camStage.bgColor = 0x0;
@@ -232,9 +258,23 @@ class CharacterEditorState extends MusicBeatState
     characterIds = CharacterDataParser.listCharacterIds();
     characterIds.sort(SortUtil.alphabetically);
 
+    // Made now rather than when it is first needed, so that the folder is
+    // there to be found by someone plugging the phone into a computer.
+    makeModDirs();
+
     buildMenubar();
     buildToolbox();
-    loadCharacter(characterIds.length > 0 ? characterIds[0] : null);
+    buildNewCharacterDialog();
+
+    var opening:Null<String> = pendingCharacterId;
+    pendingCharacterId = null;
+
+    if (opening == null || characterIds.indexOf(opening) == -1)
+    {
+      opening = characterIds.length > 0 ? characterIds[0] : null;
+    }
+
+    loadCharacter(opening);
 
     #if mobile
     // Also what puts a camera at index 1, which the engine's own touch
@@ -257,6 +297,7 @@ class CharacterEditorState extends MusicBeatState
     menubar.validateNow();
     menubarHeight = menubar.height > 0 ? menubar.height : 56;
 
+    wireMenuItem('menuNew', openNewCharacter);
     wireMenuItem('menuSave', save);
     wireMenuItem('menuReload', () -> loadCharacter(characterId));
     wireMenuItem('menuExit', goBack);
@@ -293,6 +334,20 @@ class CharacterEditorState extends MusicBeatState
     if (bg == null) return;
 
     bg.visible = stage == null || !stage.visible;
+  }
+
+  /**
+   * Put the green on a sprite. Idempotent, since it is measured from the
+   * graphic's own size rather than from whatever size the sprite is now.
+   */
+  function styleBackdrop(sprite:FlxSprite):Void
+  {
+    sprite.loadGraphic(Paths.image('menuDesat'));
+    sprite.color = 0xFF4CAF50;
+    sprite.setGraphicSize(Std.int(sprite.frameWidth * 1.1 * FullScreenScaleMode.wideScale.x));
+    sprite.updateHitbox();
+    sprite.screenCenter();
+    sprite.scrollFactor.set(0, 0);
   }
 
   function togglePanel():Void
@@ -384,6 +439,218 @@ class CharacterEditorState extends MusicBeatState
     if (danceEveryStepper != null) danceEveryStepper.onChange = function(event:UIEvent) applyDanceEvery();
     if (cameraXStepper != null) cameraXStepper.onChange = function(event:UIEvent) applyCameraOffsets();
     if (cameraYStepper != null) cameraYStepper.onChange = function(event:UIEvent) applyCameraOffsets();
+  }
+
+  // -- making a character out of a sprite sheet ----------------------------
+
+  function buildNewCharacterDialog():Void
+  {
+    newCharacterDialog = cast RuntimeComponentBuilder.fromAsset(Paths.xml('ui/character-editor/new-character-view'));
+
+    if (newCharacterDialog == null) return;
+
+    newCharacterDialog.cameras = [camUI];
+    add(newCharacterDialog);
+    newCharacterDialog.showDialog(false);
+    newCharacterDialog.validateNow();
+    newCharacterDialog.x = Math.max(SCREEN_INSET, (FlxG.width - newCharacterDialog.width) / 2);
+    newCharacterDialog.y = menubarHeight + 12;
+    newCharacterDialog.hidden = true;
+
+    sheetDropdown = newCharacterDialog.findComponent('sheetDropdown', DropDown);
+    sheetPathLabel = newCharacterDialog.findComponent('sheetPathLabel', Label);
+    sheetSummaryLabel = newCharacterDialog.findComponent('sheetSummaryLabel', Label);
+    newCharacterStatus = newCharacterDialog.findComponent('newCharacterStatus', Label);
+
+    if (sheetDropdown != null)
+    {
+      sheetDropdown.dropdownSize = 6;
+      sheetDropdown.onChange = function(event:UIEvent) {
+        if (populating) return;
+        describeSheet();
+      };
+    }
+
+    var rescanButton = newCharacterDialog.findComponent('rescanButton', Button);
+    if (rescanButton != null) rescanButton.onClick = function(event:MouseEvent) rescanSheets();
+
+    var createButton = newCharacterDialog.findComponent('createButton', Button);
+    if (createButton != null) createButton.onClick = function(event:MouseEvent) createFromSheet();
+
+    // Hidden rather than closed: a closed dialog is gone, and this one has to
+    // be able to come back the next time the menu item is used.
+    var closeButton = newCharacterDialog.findComponent('closeButton', Button);
+    if (closeButton != null) closeButton.onClick = function(event:MouseEvent) closeNewCharacter();
+
+    if (sheetPathLabel != null) sheetPathLabel.text = sheetFolder();
+  }
+
+  /**
+   * Where to tell someone to put a sheet.
+   *
+   * Absolute, because a relative path is no help at all to a person holding
+   * a phone and a file manager.
+   */
+  function sheetFolder():String
+  {
+    #if sys
+    try
+    {
+      return haxe.io.Path.join([Sys.getCwd(), SHEET_DIR]);
+    }
+    catch (error)
+    {
+      return SHEET_DIR;
+    }
+    #else
+    return SHEET_DIR;
+    #end
+  }
+
+  function openNewCharacter():Void
+  {
+    if (newCharacterDialog == null) return;
+
+    makeModDirs();
+    rescanSheets();
+
+    if (sheetPathLabel != null) sheetPathLabel.text = sheetFolder();
+
+    newCharacterDialog.hidden = false;
+  }
+
+  function closeNewCharacter():Void
+  {
+    if (newCharacterDialog != null) newCharacterDialog.hidden = true;
+  }
+
+  /**
+   * Look again at what is in the folder.
+   *
+   * Its own button as well as being done on opening, since the whole point
+   * of the folder is that things arrive in it while the app is running.
+   */
+  function rescanSheets():Void
+  {
+    sheetNames = SpriteSheetImport.listSheets(SHEET_DIR);
+
+    if (sheetDropdown != null)
+    {
+      populating = true;
+      sheetDropdown.dataSource.clear();
+
+      for (name in sheetNames)
+        sheetDropdown.dataSource.add({text: name});
+
+      populating = false;
+
+      if (sheetNames.length > 0) selectInDropdown(sheetDropdown, 0);
+    }
+
+    if (sheetNames.length == 0)
+    {
+      if (sheetSummaryLabel != null) sheetSummaryLabel.text = '';
+      sayNew('Nothing here yet. A sheet is a .png and a .xml of the same name.');
+      return;
+    }
+
+    sayNew('Found ${sheetNames.length} sheet${sheetNames.length == 1 ? "" : "s"}.');
+    describeSheet();
+  }
+
+  /**
+   * Say what is in the chosen sheet before anything is made from it, so a
+   * sheet the editor cannot read says so now rather than as a character with
+   * no animations.
+   */
+  function describeSheet():Void
+  {
+    if (sheetSummaryLabel == null) return;
+
+    var sheet:Null<String> = chosenSheet();
+
+    if (sheet == null)
+    {
+      sheetSummaryLabel.text = '';
+      return;
+    }
+
+    var prefixes:Array<String> = SpriteSheetImport.readPrefixes('$SHEET_DIR/$sheet.xml');
+
+    sheetSummaryLabel.text = prefixes.length == 0 ? 'No frames found in $sheet.xml' : '${prefixes.length} animations';
+  }
+
+  function chosenSheet():Null<String>
+  {
+    if (sheetDropdown == null) return null;
+
+    var index:Int = sheetDropdown.selectedIndex;
+    if (index < 0 || index >= sheetNames.length) return null;
+
+    return sheetNames[index];
+  }
+
+  function createFromSheet():Void
+  {
+    #if sys
+    var sheet:Null<String> = chosenSheet();
+
+    if (sheet == null)
+    {
+      sayNew('Pick a sheet first.');
+      return;
+    }
+
+    var prefixes:Array<String> = SpriteSheetImport.readPrefixes('$SHEET_DIR/$sheet.xml');
+
+    if (prefixes.length == 0)
+    {
+      sayNew('No frames found in $sheet.xml.');
+      return;
+    }
+
+    var id:String = SpriteSheetImport.uniqueId(sheet, CharacterDataParser.listCharacterIds());
+    var json:String = SpriteSheetImport.buildCharacterJson(id, sheet, 'characters/$sheet', prefixes);
+
+    try
+    {
+      makeModDirs();
+      FileUtil.writeStringToPath('$MOD_ROOT/$MOD_ID/_polymod_meta.json', modMeta(), Force);
+      FileUtil.writeStringToPath('$MOD_ROOT/$MOD_ID/data/characters/$id.json', json, Force);
+    }
+    catch (error)
+    {
+      sayNew('Could not write $id.json: $error');
+      return;
+    }
+
+    // The game only knows about files it has looked at, and it looked before
+    // this one existed. Reloading takes the editor down with it, so which
+    // character to come back up on is left behind first.
+    pendingCharacterId = id;
+    reloadAssets();
+    #else
+    sayNew('Making characters needs a filesystem.');
+    #end
+  }
+
+  function makeModDirs():Void
+  {
+    #if sys
+    var root:String = '$MOD_ROOT/$MOD_ID';
+
+    FileUtil.createDirIfNotExists(MOD_ROOT);
+    FileUtil.createDirIfNotExists(root);
+    FileUtil.createDirIfNotExists('$root/data');
+    FileUtil.createDirIfNotExists('$root/data/characters');
+    FileUtil.createDirIfNotExists('$root/images');
+    FileUtil.createDirIfNotExists('$root/images/characters');
+    #end
+  }
+
+  function sayNew(message:String):Void
+  {
+    if (newCharacterStatus != null) newCharacterStatus.text = message;
   }
 
   // -- the character ------------------------------------------------------
@@ -871,10 +1138,7 @@ class CharacterEditorState extends MusicBeatState
 
     try
     {
-      FileUtil.createDirIfNotExists(MOD_ROOT);
-      FileUtil.createDirIfNotExists(root);
-      FileUtil.createDirIfNotExists('$root/data');
-      FileUtil.createDirIfNotExists('$root/data/characters');
+      makeModDirs();
 
       FileUtil.writeStringToPath('$root/_polymod_meta.json', modMeta(), Force);
       FileUtil.writeStringToPath('$root/data/characters/$characterId.json', haxe.Json.stringify(data, null, '  '), Force);
