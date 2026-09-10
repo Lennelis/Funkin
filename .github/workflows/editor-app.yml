@@ -64,7 +64,7 @@ jobs:
 
       - name: Restore dependencies
         id: cache-hmm
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .haxelib
           key: haxe-hmm-${{ runner.os }}-${{ hashFiles('hmm.json') }}
@@ -80,7 +80,7 @@ jobs:
       # reason.
       - name: Restore lime's native tooling
         id: cache-lime
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .haxelib/lime/git/ndll/Linux64
           key: haxe-lime-linux64-${{ hashFiles('hmm.json') }}
@@ -92,20 +92,26 @@ jobs:
         if: steps.cache-lime.outputs.cache-hit != 'true'
         run: git -C .haxelib/lime/git submodule update --init --recursive
 
-      # This has to be the first lime command run, not a later one: every
-      # other lime command loads CFFI and dies on the missing library, and
-      # `rebuild` is the one the error message itself points at.
-      # build-game.yml runs setup before this, which works only because its
-      # cache is never cold.
+      # lime cannot build the library it needs in order to run: every lime
+      # command, `rebuild` included, loads CFFI first and dies. build-game.yml
+      # only gets away with rebuilding through lime because its cache is never
+      # cold.
       #
-      # Taking the ndll out of a haxelib release instead does not work: 8.3.2
-      # does not export what this fork's Haxe side calls, so it loads and then
-      # dies on a missing primitive.
+      # So this calls what `lime rebuild` would have called. hxcpp is a plain
+      # haxelib and needs nothing from lime to run.
       - name: Build lime's native tooling
         if: steps.cache-lime.outputs.cache-hit != 'true'
         run: |
-          haxelib run lime rebuild cpp -64
-          ls -la .haxelib/lime/git/ndll/Linux64
+          cd .haxelib/lime/git
+          echo "--- lime checkout ---"
+          ls
+          cat .gitmodules 2>/dev/null || echo "(no .gitmodules)"
+          echo "--- project/lib ---"
+          ls project/lib 2>/dev/null | head || echo "(no project/lib)"
+          echo "--- building lime.ndll ---"
+          cd project
+          haxelib run hxcpp Build.xml -Dlinux -DHXCPP_M64
+          ls -la ../ndll/Linux64
 
       - name: Set up lime
         run: |
@@ -131,3 +137,17 @@ jobs:
 
       - name: Typecheck
         run: haxe build.hxml --no-output
+
+      - name: Save dependencies
+        if: always() && steps.cache-hmm.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .haxelib
+          key: haxe-hmm-${{ runner.os }}-${{ hashFiles('hmm.json') }}
+
+      - name: Save lime's native tooling
+        if: always() && steps.cache-lime.outputs.cache-hit != 'true' && hashFiles('.haxelib/lime/git/ndll/Linux64/lime.ndll') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .haxelib/lime/git/ndll/Linux64
+          key: haxe-lime-linux64-${{ hashFiles('hmm.json') }}
