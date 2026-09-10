@@ -45,7 +45,7 @@ class SpriteSheetImport
    * animation itself, so that `singUP` does not get handed the miss frames
    * when the plain ones are sitting right there.
    */
-  static final ASIDES:Array<String> = ['miss', 'hold', 'loop', 'end', 'dead', 'die', 'lose', 'win'];
+  static final ASIDES:Array<String> = ['miss', 'hold', 'loop', 'dead', 'death', 'lose'];
 
   /**
    * Every sheet in a folder that has both halves of itself.
@@ -238,7 +238,12 @@ class SpriteSheetImport
         var score:Int = (hints.length - index) * 10;
         if (isAside(flattened)) score -= 5;
 
-        if (score > bestScore)
+        // Two names both saying "idle" and nothing else to choose between
+        // them: the plainer one. A sheet with "Senpai Idle" and "Angry
+        // Senpai Idle" in it means the first by "idle".
+        var plainer:Bool = best != null && flattened.length < flatten(best).length;
+
+        if (score > bestScore || (score == bestScore && plainer))
         {
           bestScore = score;
           best = prefix;
