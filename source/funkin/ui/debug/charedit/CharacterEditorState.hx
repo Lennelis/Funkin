@@ -3,6 +3,7 @@ package funkin.ui.debug.charedit;
 import flixel.FlxSprite;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.math.FlxPoint;
+import flixel.text.FlxText;
 import flixel.util.FlxColor;
 import funkin.data.animation.AnimationData;
 import funkin.data.character.CharacterData;
@@ -30,6 +31,7 @@ import haxe.ui.components.TextField;
 import haxe.ui.containers.Grid;
 import haxe.ui.containers.ScrollView;
 import haxe.ui.containers.dialogs.CollapsibleDialog;
+import haxe.ui.containers.dialogs.Dialog.DialogEvent;
 import haxe.ui.containers.menus.MenuBar;
 import haxe.ui.containers.menus.MenuCheckBox;
 import haxe.ui.containers.menus.MenuItem;
@@ -215,13 +217,31 @@ class CharacterEditorState extends MusicBeatState
 
   var characterGridScroll:Null<ScrollView> = null;
   var characterNameLabel:Null<Label> = null;
-  var positionDropdown:Null<DropDown> = null;
+  var characterSlotLabel:Null<Label> = null;
   var animationDropdown:Null<DropDown> = null;
   var animationWarning:Null<Label> = null;
   var offsetLabel:Null<Label> = null;
   var animOffsetX:Null<NumberStepper> = null;
   var animOffsetY:Null<NumberStepper> = null;
+
+  /**
+   * A see-through copy of the character, left where it was.
+   *
+   * Setting an offset is judging a distance, and a distance needs two things
+   * to be between. This is the other one: it stays put while the character
+   * moves, so what you are dragging is the gap.
+   */
+  var ghost:Null<FlxSprite> = null;
   var statusLabel:Null<Label> = null;
+
+  /**
+   * What the editor last had to say, on the screen rather than in a window.
+   *
+   * The editor now opens with every window closed, and a message that only
+   * exists inside one of them is a message nobody reads — which matters most
+   * for the ones explaining why something did not work.
+   */
+  var statusText:Null<FlxText> = null;
 
   // -- making a character out of a sprite sheet ---------------------------
 
@@ -300,6 +320,12 @@ class CharacterEditorState extends MusicBeatState
     camUI = new FunkinCamera('camUI');
     camUI.bgColor = 0x0;
     FlxG.cameras.add(camUI, false);
+
+    statusText = new FlxText(SCREEN_INSET, FlxG.height - 46, FlxG.width - SCREEN_INSET * 2, '');
+    statusText.setFormat(Paths.font('vcr.ttf'), 22, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
+    statusText.scrollFactor.set(0, 0);
+    statusText.cameras = [camUI];
+    add(statusText);
 
     // Cleared again by the hub on the way back out, the same way the debug
     // menu clears what it adds.
@@ -380,6 +406,33 @@ class CharacterEditorState extends MusicBeatState
     wireMenuItem('menuReplay', replayAnimation);
     wireMenuItem('menuResetCamera', lookAtCharacter);
     wireMenuItem('menuToggleStage', toggleStage);
+    wireMenuItem('menuPositionBf', () -> standAt(BF));
+    wireMenuItem('menuPositionDad', () -> standAt(DAD));
+    wireMenuItem('menuPositionGf', () -> standAt(GF));
+  }
+
+  /**
+   * Move the character to another slot on the stage.
+   */
+  function standAt(slot:CharacterType):Void
+  {
+    if (slot == characterType) return;
+
+    characterType = slot;
+
+    // The same character, but standing somewhere else, so this one is worth
+    // doing again.
+    loadCharacter(characterId, true);
+  }
+
+  function slotName():String
+  {
+    return switch (characterType)
+    {
+      case DAD: 'Standing as the opponent';
+      case GF: 'Standing as girlfriend';
+      default: 'Standing as boyfriend';
+    };
   }
 
   function wireMenuItem(id:String, action:Void->Void):Void
@@ -472,6 +525,17 @@ class CharacterEditorState extends MusicBeatState
     place(dialog);
 
     windows.set(id, {dialog: dialog, shown: false, left: dialog.left, top: dialog.top});
+
+    // A dialog closed by its own X goes straight to hide() without passing
+    // through the menu, so the row it belongs to would stay ticked over a
+    // window that is not there.
+    dialog.onDialogClosed = function(_) {
+      var window = windows.get(id);
+      if (window != null) window.shown = false;
+
+      var toggle = windowToggles.get(id);
+      if (toggle != null && toggle.selected) toggle.selected = false;
+    };
 
     wireWindowToggle(id);
 
@@ -656,30 +720,7 @@ class CharacterEditorState extends MusicBeatState
 
     characterGridScroll = dialog.findComponent('characterGridScroll', ScrollView);
     characterNameLabel = dialog.findComponent('characterNameLabel', Label);
-    positionDropdown = dialog.findComponent('positionDropdown', DropDown);
-
-    if (positionDropdown != null)
-    {
-      positionDropdown.dropdownSize = 6;
-      positionDropdown.onChange = function(event:UIEvent) {
-        if (populating) return;
-
-        var picked:CharacterType = switch (event.data?.text)
-        {
-          case 'dad': DAD;
-          case 'gf': GF;
-          default: BF;
-        };
-
-        if (picked == characterType) return;
-
-        characterType = picked;
-
-        // The same character, but standing somewhere else, so this one is
-        // worth doing again.
-        loadCharacter(characterId, true);
-      };
-    }
+    characterSlotLabel = dialog.findComponent('characterSlotLabel', Label);
 
     buildCharacterGrid();
   }
@@ -852,6 +893,15 @@ class CharacterEditorState extends MusicBeatState
 
     bindButton(dialog, 'resetOffsetButton', resetOffset);
     bindButton(dialog, 'replayButton', replayAnimation);
+
+    var ghostCheck = dialog.findComponent('ghostCheck', CheckBox);
+    if (ghostCheck != null)
+    {
+      ghostCheck.onChange = function(_) {
+        if (populating) return;
+        showGhost(ghostCheck.selected);
+      };
+    }
   }
 
   function buildNewCharacterWindow(dialog:Null<CollapsibleDialog>):Void
@@ -919,6 +969,8 @@ class CharacterEditorState extends MusicBeatState
 
     character = null;
 
+    showGhost(false);
+
     characterId = id;
     data = CharacterDataParser.fetchCharacterData(id);
 
@@ -961,6 +1013,7 @@ class CharacterEditorState extends MusicBeatState
     refreshBackdrop();
 
     if (characterNameLabel != null) characterNameLabel.text = '${data.name} [$characterId]';
+    if (characterSlotLabel != null) characterSlotLabel.text = slotName();
 
     fillAnimationDropdown();
 
@@ -975,6 +1028,31 @@ class CharacterEditorState extends MusicBeatState
     refreshWindows();
 
     say('Loaded $id.');
+
+    reportMissingArt();
+  }
+
+  /**
+   * Say why a character came up with nothing to show.
+   *
+   * A character whose sheet did not load is not an error anywhere — the
+   * sprite is simply built with no frames and draws nothing, which on a
+   * stage looks the same as a character that is there but invisible. Since
+   * the usual cause is a sheet the game cannot find, this says which files
+   * were looked for and whether they were there.
+   */
+  function reportMissingArt():Void
+  {
+    if (character == null || data == null) return;
+    if (character.frames != null && character.frames.frames.length > 0) return;
+
+    var image:String = Paths.image(data.assetPath);
+    var description:String = Paths.file('images/${data.assetPath}.xml');
+
+    var haveImage:Bool = openfl.utils.Assets.exists(image);
+    var haveDescription:Bool = openfl.utils.Assets.exists(description);
+
+    say('No art for $characterId. image ${haveImage ? "ok" : "MISSING"} ($image), xml ${haveDescription ? "ok" : "MISSING"} ($description)');
   }
 
   function replayAnimation():Void
@@ -1120,9 +1198,57 @@ class CharacterEditorState extends MusicBeatState
     if (character != null) character.flipX = flipped;
   }
 
+  /**
+   * Leave a copy of the character where it stands, or take it away again.
+   *
+   * The copy is drawn where the character is being drawn now — which is not
+   * where the character *is*, since the offsets move it at draw time — so
+   * the sum is done here once rather than being carried by a sprite that
+   * does not know about offsets.
+   */
+  function showGhost(on:Bool):Void
+  {
+    if (ghost != null)
+    {
+      remove(ghost);
+      ghost.destroy();
+      ghost = null;
+    }
+
+    if (!on || character == null) return;
+
+    var copy = new FlxSprite();
+    copy.loadGraphicFromSprite(character);
+    copy.scale.copyFrom(character.scale);
+    copy.updateHitbox();
+    copy.flipX = character.flipX;
+    copy.antialiasing = character.antialiasing;
+    copy.alpha = 0.4;
+    copy.cameras = [camStage];
+
+    if (animationName != '')
+    {
+      copy.animation.play(animationName, true);
+      copy.animation.pause();
+    }
+
+    var offset = currentOffset();
+    var global = character.globalOffsets;
+
+    copy.setPosition(character.x - (offset[0] - global[0]) * character.scale.x,
+      character.y - (offset[1] - global[1]) * character.scale.y);
+
+    // Over the character rather than under it: at this alpha the one you are
+    // dragging still reads as the solid one, and a ghost hidden behind the
+    // character would be no use at all.
+    ghost = copy;
+    add(ghost);
+  }
+
   function say(message:String):Void
   {
     if (statusLabel != null) statusLabel.text = message;
+    if (statusText != null) statusText.text = message;
   }
 
   function toggleStage():Void
