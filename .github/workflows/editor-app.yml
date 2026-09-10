@@ -116,24 +116,29 @@ jobs:
             return 1
           }
 
-          # Both keep their native sources in submodules of their own
-          # repositories, and installing from git does not bring those along.
+          # Look before guessing: the last few attempts each fixed a
+          # different theory about how these checkouts are laid out.
           for lib in hxcpp lime; do
-            root=$(haxelib path "$lib" | grep -m1 '^/')
-            root=${root%/}
-            while [ -n "$root" ] && [ ! -d "$root/.git" ]; do root=$(dirname "$root"); done
-            echo "--- submodules for $lib in $root ---"
-            git -C "$root" submodule update --init --recursive
+            base=$(haxelib path "$lib" | grep -m1 '^/')
+            echo "=== $lib: haxelib says $base ==="
+            root=${base%/}
+            [ -e "$root/haxelib.json" ] || root=$(dirname "$root")
+            echo "--- $root ---"
+            ls -a "$root" || true
+            echo "--- .git is: ---"
+            ls -ld "$root/.git" || true
+            file "$root/.git" || true
+            echo "--- .gitmodules ---"
+            cat "$root/.gitmodules" 2>/dev/null || echo "(none)"
+            echo "--- submodule status ---"
+            git -C "$root" submodule status || true
+            echo "--- project/ ---"
+            ls "$root/project" || true
           done
 
           hxcpp_root=$(find_root hxcpp project/build.n)
           echo "--- building hxcpp's binaries in $hxcpp_root ---"
-          ls "$hxcpp_root/project/libs"
-          # build.n shells out to the hxcpp tool, which finds its binaries
-          # missing and offers to build them. That offer is the only thing
-          # that breaks the circle — build.n needs the tool, the tool needs
-          # what build.n makes — and there is no terminal here to accept it.
-          (cd "$hxcpp_root/project" && yes | neko build.n)
+          (cd "$hxcpp_root/project" && yes | neko build.n) || echo "::warning::hxcpp build failed"
 
           lime_root=$(find_root lime project/Build.xml)
           echo "--- building lime.ndll in $lime_root ---"
