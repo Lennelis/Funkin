@@ -85,30 +85,27 @@ jobs:
           path: .haxelib/lime/git/ndll/Linux64
           key: haxe-lime-linux64-${{ hashFiles('hmm.json') }}
 
+      # lime's native code lives in submodules of its own repository, and
+      # installing it from git does not bring them along. Rebuilding without
+      # them cannot work, whatever else is wrong.
+      - name: Fetch lime's submodules
+        if: steps.cache-lime.outputs.cache-hit != 'true'
+        run: git -C .haxelib/lime/git submodule update --init --recursive
+
       # This has to be the first lime command run, not a later one: every
       # other lime command loads CFFI and dies on the missing library, and
-      # `rebuild` is the one the error message itself points at. build-game.yml
-      # runs setup before this, which works only because its cache is never
-      # cold.
+      # `rebuild` is the one the error message itself points at.
+      # build-game.yml runs setup before this, which works only because its
+      # cache is never cold.
+      #
+      # Taking the ndll out of a haxelib release instead does not work: 8.3.2
+      # does not export what this fork's Haxe side calls, so it loads and then
+      # dies on a missing primitive.
       - name: Build lime's native tooling
         if: steps.cache-lime.outputs.cache-hit != 'true'
         run: |
-          if ! haxelib run lime rebuild cpp -64; then
-            # If rebuilding cannot bootstrap itself either, take the ndll out
-            # of a haxelib release, which is what the error message suggests
-            # and what those releases carry that a git checkout does not.
-            echo "::warning::lime rebuild failed, copying the ndll from a release instead"
-            haxelib --global --never install lime
-            # haxelib reports the library's src/ directory; the ndlls sit
-            # beside it in the library root rather than inside it.
-            release=$(haxelib --global path lime | grep -m1 '^/')
-            root=$(cd "$release/.." && pwd)
-            echo "release lime at $root"
-            ls -la "$root"
-            mkdir -p .haxelib/lime/git/ndll
-            cp -r "$root"/ndll/. .haxelib/lime/git/ndll/
-          fi
-          ls -la .haxelib/lime/git/ndll/Linux64 || true
+          haxelib run lime rebuild cpp -64
+          ls -la .haxelib/lime/git/ndll/Linux64
 
       - name: Set up lime
         run: |
