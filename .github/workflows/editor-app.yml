@@ -238,8 +238,19 @@ jobs:
           echo "--- build.hxml ---"
           head -40 build.hxml
 
+      # The macro that builds the scripted classes reports the same failure
+      # once per class, so the tail of a failed run is dozens of repetitions
+      # and the message that actually explains it is at the top.
       - name: Typecheck
-        run: haxe build.hxml --no-output
+        run: |
+          if haxe build.hxml --no-output > typecheck.log 2>&1; then
+            echo "typechecked clean"
+          else
+            echo "--- first 80 lines ---"
+            head -80 typecheck.log
+            echo "--- ($(wc -l < typecheck.log) lines total) ---"
+            exit 1
+          fi
 
       - name: Save dependencies
         if: always() && steps.cache-hmm.outputs.cache-hit != 'true'
