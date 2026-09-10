@@ -53,7 +53,13 @@ jobs:
             libgl-dev libgl1-mesa-dev libglu1-mesa-dev libdrm-dev \
             libasound2-dev libpulse-dev \
             libvlc-dev libvlccore-dev \
-            gcc-multilib g++-multilib
+            gcc-multilib g++-multilib \
+            libwayland-dev libwayland-bin wayland-protocols libxkbcommon-dev
+          # SDL generates its wayland protocol bindings at build time with
+          # wayland-scanner, from the definitions in wayland-protocols. The
+          # Dockerfile predates that and lists neither, so nothing generated
+          # them and the compile went looking for files that were never
+          # written.
           # The same libffi symlink the Dockerfile makes.
           sudo ln -sf /usr/lib/x86_64-linux-gnu/libffi.so.8 \
             /usr/lib/x86_64-linux-gnu/libffi.so.6 || true
