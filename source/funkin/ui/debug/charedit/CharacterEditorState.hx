@@ -1677,13 +1677,20 @@ class CharacterEditorState extends MusicBeatState
     #end
   }
 
+  /**
+   * What makes the folder a mod.
+   *
+   * `api_version` has to satisfy the game's own rule or the scan skips the
+   * folder with a warning, exactly as if the file were not there — so it is
+   * taken from the rule rather than picked.
+   */
   function modMeta():String
   {
     return haxe.Json.stringify({
       title: "Editor",
       description: "Sprite sheets brought into the character editor.",
       contributors: [],
-      api_version: "0.1.0",
+      api_version: "0.8.0",
       mod_version: "1.0.0",
       license: "Unlicense"
     }, null, '  ');
