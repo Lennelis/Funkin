@@ -266,8 +266,11 @@ jobs:
           # Twice: once as the game is normally built, and once as the editor
           # app. The second is not redundant — the hub is only reachable under
           # that define, so nothing would compile it otherwise.
-          if haxe build.hxml --no-output > typecheck.log 2>&1 \
-             && haxe build.hxml -D EDITOR_APP --no-output >> typecheck.log 2>&1; then
+          # The exporters are not referenced from anywhere yet, so nothing
+          # would compile them and a clean run would mean nothing about them.
+          include="--macro include('funkin.data.song.exporter')"
+          if haxe build.hxml $include --no-output > typecheck.log 2>&1 \
+             && haxe build.hxml -D EDITOR_APP $include --no-output >> typecheck.log 2>&1; then
             echo "typechecked clean, both as the game and as the editor app"
           else
             # The whole log is one macro failure reported per scripted class,
