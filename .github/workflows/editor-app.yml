@@ -99,10 +99,14 @@ jobs:
             # and what those releases carry that a git checkout does not.
             echo "::warning::lime rebuild failed, copying the ndll from a release instead"
             haxelib --global --never install lime
+            # haxelib reports the library's src/ directory; the ndlls sit
+            # beside it in the library root rather than inside it.
             release=$(haxelib --global path lime | grep -m1 '^/')
-            echo "release lime at $release"
+            root=$(cd "$release/.." && pwd)
+            echo "release lime at $root"
+            ls -la "$root"
             mkdir -p .haxelib/lime/git/ndll
-            cp -r "$release"/ndll/. .haxelib/lime/git/ndll/
+            cp -r "$root"/ndll/. .haxelib/lime/git/ndll/
           fi
           ls -la .haxelib/lime/git/ndll/Linux64 || true
 
