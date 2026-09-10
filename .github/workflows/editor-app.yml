@@ -94,27 +94,44 @@ jobs:
         if: steps.cache-lime.outputs.cache-hit != 'true'
         run: git -C .haxelib/lime/git submodule update --init --recursive
 
-      # hxcpp comes from git as well, so its own binaries were never built
-      # either, and `haxelib run hxcpp` stops to ask whether to build them.
-      # Nothing is attached to answer, so it has to be done up front.
-      - name: Build hxcpp's binaries
-        if: steps.cache-lime.outputs.cache-hit != 'true'
-        run: |
-          cd "$(dirname "$(haxelib path hxcpp | grep -m1 '^/')")/project"
-          neko build.n
-
-      # lime cannot build the library it needs in order to run: every lime
-      # command, `rebuild` included, loads CFFI first and dies. build-game.yml
-      # only gets away with rebuilding through lime because its cache is never
-      # cold.
+      # Both of these come from git, so neither carries the compiled part
+      # that its haxelib releases ship, and each in turn comes up and dies on
+      # a native library that is not there. hxcpp is the bottom of it, since
+      # everything else is built by hxcpp.
       #
-      # So this calls what `lime rebuild` would have called.
-      - name: Build lime's native tooling
+      # lime cannot build the library it needs in order to run — every lime
+      # command loads CFFI first, `rebuild` included — so this calls what
+      # `lime rebuild` would have called. build-game.yml only gets away with
+      # going through lime because its cache is never cold.
+      - name: Build the native tooling
         if: steps.cache-lime.outputs.cache-hit != 'true'
         run: |
-          cd "$(haxelib path lime | grep -m1 '^/')/../project"
-          haxelib run hxcpp Build.xml -Dlinux -DHXCPP_M64
-          ls -la ../ndll/Linux64
+          # haxelib reports the library root for some libraries and its src/
+          # directory for others, so look for the file rather than assume.
+          find_root() {
+            local base
+            base=$(haxelib path "$1" | grep -m1 '^/')
+            base=${base%/}
+            for candidate in "$base" "$(dirname "$base")"; do
+              if [ -e "$candidate/$2" ]; then
+                echo "$candidate"
+                return 0
+              fi
+            done
+            echo "no $2 for $1 under $base" >&2
+            ls -la "$base" >&2
+            return 1
+          }
+
+          hxcpp_root=$(find_root hxcpp project/build.n)
+          echo "--- building hxcpp's binaries in $hxcpp_root ---"
+          (cd "$hxcpp_root/project" && neko build.n)
+
+          lime_root=$(find_root lime project/Build.xml)
+          echo "--- building lime.ndll in $lime_root ---"
+          (cd "$lime_root/project" && haxelib run hxcpp Build.xml -Dlinux -DHXCPP_M64)
+
+          ls -la "$lime_root/ndll/Linux64"
 
       - name: Set up lime
         run: |
