@@ -221,6 +221,14 @@ jobs:
               *)   mkdir -p "$path" ;;
             esac
           done
+          # A few songs are listed for separate embedding and get their asset
+          # path built from that list rather than written out, so grepping for
+          # literal paths does not see them.
+          sed -n 's/.*EMBED_SONGS_AUDIO[^=]*=[[:space:]]*\[\(.*\)\].*/\1/p' project.hxp \
+            | tr ',' '\n' | tr -d ' "' | while read -r song; do
+                [ -n "$song" ] && mkdir -p "assets/songs/$song"
+              done
+
           echo "made $(find assets -type d | wc -l) asset directories"
 
       - name: Work out the build
