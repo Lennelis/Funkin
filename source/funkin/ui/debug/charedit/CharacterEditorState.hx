@@ -114,6 +114,11 @@ class CharacterEditorState extends MusicBeatState
   static final TILE:Float = 88;
 
   /**
+   * How many offset changes can be taken back.
+   */
+  static final UNDO_DEPTH:Int = 60;
+
+  /**
    * Sizes for fingers rather than for a mouse pointer.
    *
    * The toolkit's own numbers assume a pointer that lands where it is aimed:
@@ -258,6 +263,24 @@ class CharacterEditorState extends MusicBeatState
   var animationNameField:Null<TextField> = null;
   var animOffsetX:Null<NumberStepper> = null;
   var animOffsetY:Null<NumberStepper> = null;
+  var copyOffsetDropdown:Null<DropDown> = null;
+
+  /**
+   * Which animation the copy dropdown is pointing at.
+   *
+   * Kept here rather than read back off the control, which is the shape the
+   * animation dropdown already uses.
+   */
+  var copyOffsetChoice:Null<String> = null;
+
+  /**
+   * Where each offset stood before it was last moved, newest last.
+   *
+   * Placing a character is guesswork done by eye, and the drag that went too
+   * far is only recognised as such after it has happened, so every way of
+   * moving an offset writes down what it is about to paint over.
+   */
+  var offsetHistory:Array<OffsetEdit> = [];
 
   /**
    * A see-through copy of the character, left where it was.
@@ -449,6 +472,7 @@ class CharacterEditorState extends MusicBeatState
     wireMenuItem('menuExport', exportCharacter);
     wireMenuItem('menuReload', () -> loadCharacter(characterId, true));
     wireMenuItem('menuExit', () -> later(goBack));
+    wireMenuItem('menuUndoOffset', undoOffset);
     wireMenuItem('menuResetOffset', resetOffset);
     wireMenuItem('menuReplay', replayAnimation);
     wireMenuItem('menuResetCamera', lookAtCharacter);
@@ -925,8 +949,14 @@ class CharacterEditorState extends MusicBeatState
       };
     }
 
-    bindStepper(dialog, 'animOffsetXStepper', () -> currentOffset()[0], function(value) setOffset(value, currentOffset()[1]));
-    bindStepper(dialog, 'animOffsetYStepper', () -> currentOffset()[1], function(value) setOffset(currentOffset()[0], value));
+    bindStepper(dialog, 'animOffsetXStepper', () -> currentOffset()[0], function(value) {
+      recordOffset();
+      setOffset(value, currentOffset()[1]);
+    });
+    bindStepper(dialog, 'animOffsetYStepper', () -> currentOffset()[1], function(value) {
+      recordOffset();
+      setOffset(currentOffset()[0], value);
+    });
 
     animationNameField = dialog.findComponent('nameField', TextField);
     if (animationNameField != null)
@@ -982,7 +1012,21 @@ class CharacterEditorState extends MusicBeatState
     });
 
     bindButton(dialog, 'resetOffsetButton', resetOffset);
+    bindButton(dialog, 'undoOffsetButton', undoOffset);
     bindButton(dialog, 'replayButton', replayAnimation);
+
+    copyOffsetDropdown = dialog.findComponent('copyOffsetDropdown', DropDown);
+    if (copyOffsetDropdown != null)
+    {
+      copyOffsetDropdown.dropdownSize = 6;
+      copyOffsetDropdown.onChange = function(event:UIEvent) {
+        if (!populating) copyOffsetChoice = event.data?.text;
+      };
+    }
+
+    bindButton(dialog, 'copyOffsetButton', () -> copyOffsetFrom(copyOffsetChoice));
+
+    refreshers.push(fillCopyDropdown);
 
     var ghostCheck = dialog.findComponent('ghostCheck', CheckBox);
     if (ghostCheck != null)
@@ -1098,6 +1142,10 @@ class CharacterEditorState extends MusicBeatState
     applyFlipX(true);
 
     animationNames = [for (animation in data.animations) animation.name];
+
+    // The history is a list of animation names and numbers, and neither
+    // belongs to this character.
+    offsetHistory = [];
 
     lookAtCharacter();
     refreshBackdrop();
@@ -1291,6 +1339,7 @@ class CharacterEditorState extends MusicBeatState
 
     data.animations.remove(entry);
     animationNames.remove(going);
+    offsetHistory = offsetHistory.filter(edit -> edit.animation != going);
     if (character != null)
     {
       character.animation.remove(going);
@@ -1339,6 +1388,11 @@ class CharacterEditorState extends MusicBeatState
     entry.name = to;
     animationNames[animationNames.indexOf(from)] = to;
     animationName = to;
+
+    // The history files its entries under the name too, so it moves as well
+    // rather than pointing at an animation that no longer exists.
+    for (edit in offsetHistory)
+      if (edit.animation == from) edit.animation = to;
 
     if (character != null)
     {
@@ -1429,8 +1483,123 @@ class CharacterEditorState extends MusicBeatState
 
   function resetOffset():Void
   {
+    recordOffset();
     setOffset(0, 0);
     say('Offset cleared for $animationName.');
+  }
+
+  /**
+   * Write down where the current animation sits, before something moves it.
+   *
+   * A drag records once, when the finger goes down, rather than on every
+   * frame it moves through: taking one back should put the character where
+   * it stood before the drag, not a pixel back along it.
+   */
+  function recordOffset():Void
+  {
+    if (character == null || animationName == '') return;
+
+    var offset = currentOffset();
+
+    // An edit that changed nothing -- clearing an offset that is already
+    // clear, say -- would otherwise become an undo that appears to do
+    // nothing, and the one before it would need pressing twice.
+    var last = offsetHistory[offsetHistory.length - 1];
+    if (last != null && last.animation == animationName && last.x == offset[0] && last.y == offset[1]) return;
+
+    offsetHistory.push({animation: animationName, x: offset[0], y: offset[1]});
+
+    // Far more than anyone will walk back, and small enough to be free.
+    if (offsetHistory.length > UNDO_DEPTH) offsetHistory.shift();
+  }
+
+  /**
+   * Put the last offset that moved back where it was.
+   *
+   * The animation it belongs to is shown again on the way, since an offset
+   * changing on an animation you cannot see would look like nothing
+   * happening at all.
+   */
+  function undoOffset():Void
+  {
+    if (character == null) return;
+
+    var last = offsetHistory.pop();
+
+    if (last == null)
+    {
+      say('Nothing to undo.');
+      return;
+    }
+
+    if (last.animation != animationName)
+    {
+      playAnimation(last.animation);
+      selectInDropdown(animationDropdown, animationNames.indexOf(last.animation));
+    }
+
+    // Straight to the sprite rather than through setOffset, which would
+    // record this as one more thing to undo and never let the stack empty.
+    character.animOffsets = [last.x, last.y];
+    character.setAnimationOffsets(last.animation, last.x, last.y);
+
+    refreshOffsetLabel();
+    say('Put ${last.animation} back to ${Std.int(last.x)}, ${Std.int(last.y)}.');
+  }
+
+  /**
+   * Take another animation's offset for this one.
+   *
+   * Most of a character's animations are drawn from the same place on the
+   * sheet, so once one of them sits right the rest usually want the same
+   * numbers rather than the same guesswork again.
+   */
+  function copyOffsetFrom(name:Null<String>):Void
+  {
+    if (character == null || name == null || name == '') return;
+
+    if (name == animationName)
+    {
+      say('That is the animation you are on.');
+      return;
+    }
+
+    var source = character.animationOffsets.get(name);
+
+    if (source == null)
+    {
+      say('$name has no offset to copy.');
+      return;
+    }
+
+    recordOffset();
+    setOffset(source[0], source[1]);
+    say('Took ${animationName}\'s offset from $name.');
+  }
+
+  /**
+   * Fill the list of animations an offset can be taken from.
+   *
+   * Everything but the animation being edited, which has nothing to give
+   * itself.
+   */
+  function fillCopyDropdown():Void
+  {
+    if (copyOffsetDropdown == null) return;
+
+    // Put the flag back rather than down: this runs as one of the refreshers,
+    // which are all run with it up, and the ones after it still need it.
+    var was = populating;
+    populating = true;
+
+    copyOffsetDropdown.dataSource.clear();
+
+    for (name in animationNames)
+      if (name != animationName) copyOffsetDropdown.dataSource.add({text: name});
+
+    copyOffsetDropdown.selectedIndex = -1;
+    copyOffsetChoice = null;
+    populating = was;
   }
 
   function setOffset(x:Float, y:Float):Void
@@ -2302,6 +2471,13 @@ class CharacterEditorState extends MusicBeatState
       // tap, and moving the character on the way would undo itself anyway.
       if (wandered > TAP_SLOP)
       {
+        // The drag starts here rather than where the finger landed: a finger
+        // that goes down and comes back up has asked to see the animation
+        // again and moved nothing, and writing that down would leave an undo
+        // that undoes nothing. Nothing has moved yet on this frame, so what
+        // gets written down is still where the character stood.
+        if (dragging && !pressWasDrag) recordOffset();
+
         pressWasDrag = true;
 
         if (dragging)
@@ -2374,6 +2550,13 @@ class CharacterEditorState extends MusicBeatState
 
       if (wandered > TAP_SLOP)
       {
+        // The drag starts here rather than where the finger landed: a finger
+        // that goes down and comes back up has asked to see the animation
+        // again and moved nothing, and writing that down would leave an undo
+        // that undoes nothing. Nothing has moved yet on this frame, so what
+        // gets written down is still where the character stood.
+        if (dragging && !pressWasDrag) recordOffset();
+
         pressWasDrag = true;
 
         if (dragging)
@@ -2438,4 +2621,14 @@ typedef EditorWindow =
   var shown:Bool;
   var left:Null<Float>;
   var top:Null<Float>;
+}
+
+/**
+ * Where one animation's offset stood before something moved it.
+ */
+typedef OffsetEdit =
+{
+  var animation:String;
+  var x:Float;
+  var y:Float;
 }
