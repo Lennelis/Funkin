@@ -54,7 +54,7 @@ class Project extends HXProject
    * The editor app's name on the home screen, to tell it apart from the game
    * when both are installed.
    */
-  static final TITLE_EDITOR:String = "FNF Editors";
+  static final TITLE_EDITOR:String = "Funkin' Editors";
 
   /**
    * A package name used for identifying the app on various app stores.
@@ -68,7 +68,7 @@ class Project extends HXProject
    * different one here is what lets the editors sit alongside the game rather
    * than replacing it.
    */
-  static final PACKAGE_NAME_EDITOR:String = "me.funkin.editors";
+  static final PACKAGE_NAME_EDITOR:String = "dev.funkin.editors";
 
   /**
    * The name of the generated executable file.
@@ -1173,7 +1173,12 @@ class Project extends HXProject
 
     // Custom android.application XML Children for the AndroidManifest
     final modsFolderProvider:Xml = Xml.createElement('provider');
-    modsFolderProvider.set('android:authorities', '$PACKAGE_NAME.docprovider');
+    // This build's package rather than the game's constant. Android requires
+    // a content provider authority to be unique across every app on the
+    // device, so spelling the game's name here meant the editor app declared
+    // the authority the game had already taken, and the two could not be
+    // installed side by side.
+    modsFolderProvider.set('android:authorities', '${this.meta.packageName}.docprovider');
     modsFolderProvider.set('android:name', 'funkin.provider.DataFolderProvider');
     modsFolderProvider.set('android:grantUriPermissions', 'true');
     modsFolderProvider.set('android:exported', 'true');
@@ -1593,7 +1598,16 @@ class Project extends HXProject
   {
     info('Configuring application icons...');
 
-    if (isAndroid())
+    if (hasDefine("EDITOR_APP"))
+    {
+      // One square image, which lime scales into the densities Android asks
+      // for. The game's own icons are a set of adaptive-icon layers living in
+      // the art submodule; the editors are a separate app with their own
+      // face, and one that does not depend on a submodule the build may not
+      // be able to reach.
+      addIcon("editor-art/icon.png");
+    }
+    else if (isAndroid())
     {
       // Adaptive icons
       adaptiveIcon = new AdaptiveIcon('art/icons/android/', true);
