@@ -254,12 +254,23 @@ jobs:
           echo "$(find assets/preload/data -name '*.json' | wc -l) data files"
           echo "$(find assets/exclude/data -name '*.xml' | wc -l) layouts"
 
-      - name: Work out the build
+      # Two builds, because which classes exist depends on the define rather
+      # than on the command line. project.hxp turns the editors off on mobile
+      # unless EDITOR_APP is set, and what that decides is the `include`
+      # macros written into the hxml — so passing the define to `haxe`
+      # afterwards is far too late. Generated without it, the hxml has no
+      # mention of the editors at all and typechecking it says nothing about
+      # them, which is how a character editor that does not compile has been
+      # passing this check.
+      - name: Work out the builds
         if: steps.probe.outputs.ok != 'true'
         run: |
-          haxelib run lime display android > build.hxml
-          echo "--- build.hxml ---"
-          head -40 build.hxml
+          haxelib run lime display android > build-game.hxml
+          haxelib run lime display android -DEDITOR_APP > build-editor.hxml
+
+          echo "--- editors included? ---"
+          grep -c 'funkin.ui.debug' build-game.hxml || echo "0 in the game build"
+          grep -c 'funkin.ui.debug' build-editor.hxml || echo "0 in the editor build"
 
       # The macro that builds the scripted classes reports the same failure
       # once per class, so the tail of a failed run is dozens of repetitions
@@ -276,8 +287,8 @@ jobs:
           # The exporters are not referenced from anywhere yet, so nothing
           # would compile them and a clean run would mean nothing about them.
           include="--macro include('funkin.data.song.exporter')"
-          if haxe build.hxml $include --no-output > typecheck.log 2>&1 \
-             && haxe build.hxml -D EDITOR_APP $include --no-output >> typecheck.log 2>&1; then
+          if haxe build-game.hxml $include --no-output > typecheck.log 2>&1 \
+             && haxe build-editor.hxml $include --no-output >> typecheck.log 2>&1; then
             echo "typechecked clean, both as the game and as the editor app"
           else
             # The whole log is one macro failure reported per scripted class,

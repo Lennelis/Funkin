@@ -1770,6 +1770,67 @@ class CharacterEditorState extends MusicBeatState
     return haxe.io.Path.withoutDirectory(withoutLibrary);
   }
 
+  /**
+   * Build the stage fresh.
+   *
+   * Rebuilding rather than swapping the character out of the old one: a stage
+   * places a character when it is added, and taking one back off again is
+   * more of its business than an editor should be reaching into.
+   */
+  function loadStage():Void
+  {
+    unloadStage();
+
+    stage = StageRegistry.instance.fetchEntry(STAGE_ID);
+
+    if (stage == null) return;
+
+    stage.revive();
+    ScriptEventDispatcher.callEvent(stage, new ScriptEvent(CREATE, false));
+
+    stage.cameras = [camStage];
+    add(stage);
+  }
+
+  /**
+   * Put the stage away.
+   *
+   * The registry hands out one stage and hands out the same one every time,
+   * so a stage that is merely dropped and fetched again is the same object
+   * with everything still on it — and building it once more builds a second
+   * set of props on top of the first, and a third, until the frame rate says
+   * so. Destroying it is what empties it, and takes whatever was standing on
+   * it along too.
+   */
+  function unloadStage():Void
+  {
+    if (stage == null) return;
+
+    ScriptEventDispatcher.callEvent(stage, new ScriptEvent(DESTROY, false));
+    remove(stage);
+    stage.kill();
+    stage = null;
+
+    // Destroyed along with the stage it was standing on.
+    character = null;
+  }
+
+  function lookAtCharacter():Void
+  {
+    camStage.zoom = 0.7;
+
+    if (character == null)
+    {
+      camStage.scroll.set(0, 0);
+      return;
+    }
+
+    var middle = character.getMidpoint();
+    camStage.focusOn(middle);
+    middle.putWeak();
+  }
+
+
   // -- making a character out of a sprite sheet ---------------------------
 
   /**
