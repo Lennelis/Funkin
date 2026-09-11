@@ -307,11 +307,16 @@ class CharacterEditorState extends MusicBeatState
   var playtestWindows:Array<String> = [];
 
   /**
-   * The cameras the editor was using when the playtest started.
+   * The editor's own cameras, held aside while a playtest is up.
    *
    * A song resets the camera list on its way in, which destroys every camera
-   * that was already there, so the editor's are taken out of the list first
-   * and put back afterwards.
+   * that was already there, so these are taken out of the list first and put
+   * back afterwards.
+   *
+   * The editor's own, and no others: the touch pointer keeps a camera in
+   * that list which it manages itself, replacing it when it is destroyed, so
+   * holding onto that one means putting back a camera that has been thrown
+   * away and replaced.
    */
   var playtestCameras:Array<flixel.FlxCamera> = [];
 
@@ -1282,16 +1287,24 @@ class CharacterEditorState extends MusicBeatState
         characters: characters,
         player: characters.player,
         girlfriend: characters.girlfriend,
-        opponent: characters.opponent
+        opponent: characters.opponent,
+        playerVocals: characters.playerVocals,
+        opponentVocals: characters.opponentVocals
       };
 
+    // A song with no list of its own works out which voice track belongs to
+    // a side from whoever is standing in it, and there is no voice track
+    // named after the character being edited -- so that side would come out
+    // silent. Writing down who was standing there keeps its voice.
     switch (characterType)
     {
       case DAD:
+        characters.opponentVocals = characters.opponentVocals ?? [characters.opponent];
         characters.opponent = characterId;
       case GF:
         characters.girlfriend = characterId;
       default:
+        characters.playerVocals = characters.playerVocals ?? [characters.player];
         characters.player = characterId;
     }
 
@@ -1325,11 +1338,21 @@ class CharacterEditorState extends MusicBeatState
 
     // A song resets the camera list, and resetting it destroys whatever was
     // in it -- so the editor's cameras come out of the list, rather than
-    // being handed over to be thrown away.
-    playtestCameras = [for (cam in FlxG.cameras.list) cam];
+    // being handed over to be thrown away. Named one by one rather than
+    // taken off the list wholesale, so that nothing else's camera is carried
+    // off with them.
+    playtestCameras = [];
 
-    for (cam in playtestCameras)
+    var mine:Array<Null<flixel.FlxCamera>> = [FlxG.camera, camStage, camUI, camControls];
+
+    for (cam in mine)
+    {
+      if (cam == null || playtestCameras.indexOf(cam) != -1) continue;
+      if (FlxG.cameras.list.indexOf(cam) == -1) continue;
+
+      playtestCameras.push(cam);
       FlxG.cameras.remove(cam, false);
+    }
 
     // Something to be looking through in the meantime: an empty list leaves
     // the game with no camera at all, which is not a state anything between
@@ -1366,6 +1389,8 @@ class CharacterEditorState extends MusicBeatState
       was.characters.player = was.player;
       was.characters.girlfriend = was.girlfriend;
       was.characters.opponent = was.opponent;
+      was.characters.playerVocals = was.playerVocals;
+      was.characters.opponentVocals = was.opponentVocals;
 
       playtestOverride = null;
     }
@@ -3043,6 +3068,8 @@ typedef PlaytestOverride =
   var player:String;
   var girlfriend:String;
   var opponent:String;
+  var playerVocals:Null<Array<String>>;
+  var opponentVocals:Null<Array<String>>;
 }
 
 /**
