@@ -93,10 +93,19 @@ class ReloadAssetsDebugPlugin extends FlxBasic
   @:noCompletion
   function onActivityResult(requestCode:Int, resultCode:Int):Void
   {
-    if (requestCode == CallbackUtil.DATA_FOLDER_CLOSED)
-    {
-      reload();
-    }
+    // Every activity this app starts reports back here, the system file
+    // picker among them, and a request code only means something to whoever
+    // chose it -- so the code alone is not proof of who is answering.
+    // Reloading on somebody else's answer throws away the state that was
+    // waiting for it, which looks like the editor resetting itself and
+    // losing whatever was being imported.
+    if (!funkin.external.android.DataFolderUtil.awaitingClose) return;
+
+    if (requestCode != CallbackUtil.DATA_FOLDER_CLOSED) return;
+
+    funkin.external.android.DataFolderUtil.markClosed();
+
+    reload();
   }
   #end
 }

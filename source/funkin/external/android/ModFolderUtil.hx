@@ -2,12 +2,12 @@ package funkin.external.android;
 
 #if android
 /**
- * Reading and writing a folder the user picked.
+ * Writing into a folder the user picked.
  *
  * Android hands back a tree URI rather than a path when someone chooses a
- * folder, and nothing that works by path can do anything with one — so
- * reaching inside it goes through the document provider on the Java side
- * instead.
+ * folder, and nothing that writes by path can do anything with one — so
+ * placing a file inside it goes through the document provider on the Java
+ * side instead.
  */
 class ModFolderUtil
 {
@@ -27,49 +27,6 @@ class ModFolderUtil
     if (copyIntoJNI == null) return false;
 
     return copyIntoJNI(treeUri, relativePath, absolute(sourcePath)) == true;
-  }
-
-  /**
-   * What is inside a folder the user picked.
-   *
-   * @param treeUri The tree URI the folder picker returned.
-   * @param relativePath Where inside it to look, "/" separated, or empty for
-   *   the folder itself.
-   * @return The names, directories marked with a trailing "/". Empty if
-   *   there is nothing there, or nothing there to look in.
-   */
-  public static function listChildren(treeUri:String, relativePath:String = ''):Array<String>
-  {
-    final listChildrenJNI:Null<Dynamic> = JNIUtil.createStaticMethod('funkin/extensions/ModFolderExtension', 'listChildren',
-      '(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;');
-
-    if (listChildrenJNI == null) return [];
-
-    final listing:Null<String> = listChildrenJNI(treeUri, relativePath);
-
-    if (listing == null || listing == '') return [];
-
-    return [for (name in listing.split('\n')) if (name != '') name];
-  }
-
-  /**
-   * Copy something out of a folder the user picked, into ordinary storage.
-   *
-   * A directory comes out whole, everything under it included.
-   *
-   * @param treeUri The tree URI the folder picker returned.
-   * @param relativePath What inside it to copy, "/" separated.
-   * @param destPath Where to put it, as an ordinary path.
-   * @return Whether anything was copied.
-   */
-  public static function copyOut(treeUri:String, relativePath:String, destPath:String):Bool
-  {
-    final copyOutJNI:Null<Dynamic> = JNIUtil.createStaticMethod('funkin/extensions/ModFolderExtension', 'copyOut',
-      '(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z');
-
-    if (copyOutJNI == null) return false;
-
-    return copyOutJNI(treeUri, relativePath, absolute(destPath)) == true;
   }
 
   /**

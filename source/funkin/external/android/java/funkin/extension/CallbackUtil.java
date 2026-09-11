@@ -10,8 +10,13 @@ public class CallbackUtil extends Extension
 {
 	/**
 	 * Constant representing the event when the data folder is closed.
+	 *
+	 * Every activity this app starts reports back through the same callback,
+	 * and a request code only means something to whoever chose it -- so this
+	 * is a number nothing else is likely to have picked, rather than the
+	 * first one going.
 	 */
-  public static int DATA_FOLDER_CLOSED = 0x01;
+  public static int DATA_FOLDER_CLOSED = 0x0F17;
 
 	private static HaxeObject haxeObject;
 

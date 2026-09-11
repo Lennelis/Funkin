@@ -86,25 +86,6 @@ class CharacterEditorState extends MusicBeatState
   static final SHEET_DIR:String = 'mods/editor/images/characters';
 
   /**
-   * Where the folder someone last read mods out of is written down.
-   *
-   * A dotted name so that the mod scan does not take it for a mod.
-   */
-  static final SOURCE_NOTE:String = 'mods/.mod-source';
-
-  /**
-   * The two apps, for guessing where the game keeps its own mods.
-   *
-   * They stand side by side under the same parent, so the editor's own
-   * storage folder names the game's. Reading it that way only works where
-   * the system still allows it, which is why it is a guess rather than the
-   * way in.
-   */
-  static final EDITOR_PACKAGE:String = 'dev.funkin.editors';
-
-  static final GAME_PACKAGE:String = 'me.funkin.fnf';
-
-  /**
    * The stage a character is shown on. The one the game opens on, so what you
    * see here is what most songs will show.
    */
@@ -182,15 +163,6 @@ class CharacterEditorState extends MusicBeatState
     .dropdown-popup:mobile { width: 360px; }
     .dropdown-popup .listview .itemrenderer { padding: 16px 12px; }
   ';
-
-  /**
-   * Whether this run has already gone looking for the game's mods.
-   *
-   * Once per run rather than once per visit: reading them means reloading
-   * every asset, and doing that each time somebody comes back to this
-   * screen would be a pause for nothing.
-   */
-  static var scannedMods:Bool = false;
 
   /**
    * Which character to come up on after the editor has been rebuilt.
@@ -297,6 +269,36 @@ class CharacterEditorState extends MusicBeatState
   var animOffsetX:Null<NumberStepper> = null;
   var animOffsetY:Null<NumberStepper> = null;
   var copyOffsetDropdown:Null<DropDown> = null;
+
+  /**
+   * Which engine the import window is reading a character out of.
+   */
+  var engine:CharacterEngine = Psych;
+
+  var engineNameLabel:Null<Label> = null;
+  var engineFileLabel:Null<Label> = null;
+  var engineSheetLabel:Null<Label> = null;
+  var engineImportStatus:Null<Label> = null;
+
+  /**
+   * The character file chosen in the import window, still unread.
+   */
+  var engineFile:Null<String> = null;
+
+  /**
+   * What that file was called, which is what the character gets called.
+   */
+  var engineFileName:Null<String> = null;
+
+  /**
+   * A sheet chosen alongside it, if one was. Optional: a character whose art
+   * this game already has does not need it again.
+   */
+  var engineSheet:Null<String> = null;
+
+  var engineSheetImage:Null<lime.utils.Bytes> = null;
+
+  var engineSheetDescription:Null<lime.utils.Bytes> = null;
   var playtestSongDropdown:Null<DropDown> = null;
   var playtestDifficultyDropdown:Null<DropDown> = null;
 
@@ -488,13 +490,6 @@ class CharacterEditorState extends MusicBeatState
     // there to be found by someone plugging the phone into a computer.
     makeModDirs();
 
-    // Whatever was read last time, read again, in case it has changed.
-    if (!scannedMods)
-    {
-      scannedMods = true;
-      readRememberedMods();
-    }
-
     // A character imported just before the reload that brought us back here
     // has no file anywhere; putting it in the cache is what makes it real
     // enough to be built, played and eventually exported.
@@ -562,7 +557,8 @@ class CharacterEditorState extends MusicBeatState
     wireMenuItem('menuExport', exportCharacter);
     wireMenuItem('menuReload', () -> loadCharacter(characterId, true));
     wireMenuItem('menuPlaytest', () -> showWindow('windowPlaytest', true));
-    wireMenuItem('menuLoadMods', () -> later(loadMods));
+    wireMenuItem('menuImportPsych', () -> openEngineImport(Psych));
+    wireMenuItem('menuImportCodename', () -> openEngineImport(Codename));
     wireMenuItem('menuExit', () -> later(goBack));
     wireMenuItem('menuUndoOffset', undoOffset);
     wireMenuItem('menuResetOffset', resetOffset);
@@ -662,6 +658,7 @@ class CharacterEditorState extends MusicBeatState
     var healthIcon = openWindow('windowHealthIcon', 'ui/character-editor/health-icon-view', place);
     var newCharacter = openWindow('windowNewCharacter', 'ui/character-editor/new-character-view', place);
     var playtest = openWindow('windowPlaytest', 'ui/character-editor/playtest-view', place);
+    var engineImport = openWindow('windowEngineImport', 'ui/character-editor/engine-import-view', place);
 
     buildCharacterSelect(select);
     buildAnimationWindow(animation);
@@ -669,6 +666,7 @@ class CharacterEditorState extends MusicBeatState
     buildHealthIconWindow(healthIcon);
     buildNewCharacterWindow(newCharacter);
     buildPlaytestWindow(playtest);
+    buildEngineImportWindow(engineImport);
 
     newCharacterDialog = newCharacter;
 
@@ -1221,134 +1219,217 @@ class CharacterEditorState extends MusicBeatState
 
   // -- the character ------------------------------------------------------
 
-  // -- reading someone else's mods ----------------------------------------
+  // -- bringing a character over from another engine -----------------------
 
   /**
-   * Bring in the characters from mods kept somewhere else on the device.
-   *
-   * The game's own mods folder is the point of this: on a recent Android an
-   * app cannot read another's storage by path, but the game publishes that
-   * folder through a document provider, so the system folder picker can
-   * reach it and the copy goes through the provider as well.
+   * Put the import window up, reading whichever engine was asked for.
    */
-  function loadMods():Void
+  function openEngineImport(from:CharacterEngine):Void
   {
-    say('Choose the folder your mods are in...');
+    engine = from;
 
-    // Asked for once and kept, so that the next run can read the same folder
-    // without asking again. Without this the system hands over access for as
-    // long as the app is up and takes it back afterwards.
-    #if android
-    lime.system.System.setHint('SDL_ANDROID_ALLOW_PERSISTENT_FOLDER_ACCESS', '1');
-    #end
+    forgetEngineChoice();
 
-    FileUtil.browseForDirectory('Choose a mods folder', function(folder:String) {
-      later(() -> readMods(folder));
-    }, function() {
-      say('Nothing loaded.');
-    });
+    if (engineNameLabel != null) engineNameLabel.text = engineName();
+
+    showWindow('windowEngineImport', true);
+
+    sayImport('Choose the character file to bring over.');
+  }
+
+  function engineName():String
+  {
+    return switch (engine)
+    {
+      case Codename: 'Codename Engine';
+      default: 'Psych Engine';
+    };
+  }
+
+  function forgetEngineChoice():Void
+  {
+    engineFile = null;
+    engineFileName = null;
+    engineSheet = null;
+    engineSheetImage = null;
+    engineSheetDescription = null;
+
+    if (engineFileLabel != null) engineFileLabel.text = 'Nothing chosen yet.';
+    if (engineSheetLabel != null) engineSheetLabel.text = 'Nothing chosen yet.';
+  }
+
+  function buildEngineImportWindow(dialog:Null<CollapsibleDialog>):Void
+  {
+    if (dialog == null) return;
+
+    engineNameLabel = dialog.findComponent('engineNameLabel', Label);
+    engineFileLabel = dialog.findComponent('engineFileLabel', Label);
+    engineSheetLabel = dialog.findComponent('engineSheetLabel', Label);
+    engineImportStatus = dialog.findComponent('engineImportStatus', Label);
+
+    // Asking the system for a file puts the app in the background and brings
+    // it back, which is not a thing to start in the middle of handling the
+    // press that asked for it.
+    bindButton(dialog, 'engineFileButton', () -> later(chooseEngineFile));
+    bindButton(dialog, 'engineSheetButton', () -> later(chooseEngineSheet));
+    bindButton(dialog, 'engineCreateButton', createFromEngine);
+    bindButton(dialog, 'engineCloseButton', () -> showWindow('windowEngineImport', false));
+
+    if (engineNameLabel != null) engineNameLabel.text = engineName();
   }
 
   /**
-   * Read the mods again from wherever they were last read from.
-   *
-   * Runs on the way in rather than waiting to be asked: someone who has
-   * already said where their mods are should not have to say it again, and a
-   * mod edited since is one whose characters have changed.
+   * Pick the character file itself.
    */
-  function readRememberedMods():Void
+  function chooseEngineFile():Void
   {
     #if sys
-    var source:Null<String> = rememberedSource();
+    // Codename writes a character as XML and Psych as JSON, but hand-made
+    // files land under whichever extension their author felt like, so both
+    // are offered either way and the reading decides.
+    var filters:Array<openfl.net.FileFilter> = [FileUtil.FILE_FILTER_JSON, FileUtil.FILE_FILTER_XML];
 
-    if (source == null) return;
+    sayImport('Choose the ${engineName()} character file...');
 
-    var brought = ModImport.importFrom(source, MOD_ROOT);
-
-    if (brought.mods.length == 0) return;
-
-    // Everything downstream reads what Polymod found at startup, which was
-    // before any of this arrived. Reloading rather than resetting the state,
-    // since there is not yet a state worth keeping.
-    funkin.modding.PolymodHandler.forceReloadAssets();
-    #end
-  }
-
-  /**
-   * The folder to read mods out of without being told.
-   */
-  function rememberedSource():Null<String>
-  {
-    #if sys
-    // Wherever it was last time, which the system still lets this app reach
-    // because the picker was asked for lasting access.
-    if (FileUtil.fileExists(SOURCE_NOTE))
-    {
-      var saved:Null<String> = FileUtil.readStringFromPath(SOURCE_NOTE);
-
-      if (saved != null && StringTools.trim(saved) != '') return StringTools.trim(saved);
-    }
-
-    // Failing that, the game's own folder, on the chance that this device
-    // still allows one app to read another's. Newer ones do not, and then
-    // there is nothing to do but ask.
-    var beside:String = StringTools.replace(Sys.getCwd(), EDITOR_PACKAGE, GAME_PACKAGE);
-
-    if (beside != Sys.getCwd())
-    {
-      var mods:String = haxe.io.Path.join([beside, 'mods']);
-
-      try
+    FileUtil.browseForFile('Choose the character file', filters, function(chosen:SelectedFileData) {
+      if (chosen?.bytes == null)
       {
-        if (sys.FileSystem.exists(mods) && sys.FileSystem.isDirectory(mods)) return mods;
+        sayImport('Could not read that file.');
+        return;
       }
-      catch (error)
-      {
-        // Not readable, which is the usual answer and not worth saying.
-      }
-    }
-    #end
 
-    return null;
+      engineFile = chosen.bytes.toString();
+
+      var named:String = sheetNameOf(chosen);
+      engineFileName = named;
+
+      if (engineFileLabel != null) engineFileLabel.text = named;
+
+      sayImport('Read $named. Press "Load it in" when ready.');
+    }, function() sayImport('Cancelled.'));
+    #else
+    sayImport('Importing needs a filesystem.');
+    #end
   }
 
-  function readMods(folder:String):Void
+  /**
+   * Pick the sheet to go with it, which is optional.
+   */
+  function chooseEngineSheet():Void
   {
     #if sys
-    say('Reading that folder...');
+    sayImport('Choose the image...');
 
-    var brought = ModImport.importFrom(folder, MOD_ROOT);
+    FileUtil.browseForFile('Choose a sprite sheet image', [FileUtil.FILE_FILTER_PNG], function(image:SelectedFileData) {
+      if (image?.bytes == null)
+      {
+        sayImport('Could not read that image.');
+        return;
+      }
 
-    if (brought.mods.length == 0)
+      var named:String = sheetNameOf(image);
+      sayImport('Now choose $named.xml...');
+
+      FileUtil.browseForFile('Choose the matching .xml', [FileUtil.FILE_FILTER_XML], function(description:SelectedFileData) {
+        if (description?.bytes == null)
+        {
+          sayImport('Could not read that .xml.');
+          return;
+        }
+
+        engineSheet = named;
+        engineSheetImage = image.bytes;
+        engineSheetDescription = description.bytes;
+
+        if (engineSheetLabel != null) engineSheetLabel.text = '$named.png and $named.xml';
+
+        sayImport('Sheet ready.');
+      }, function() sayImport('Cancelled — a sheet needs its .xml too.'));
+    }, function() sayImport('Cancelled.'));
+    #end
+  }
+
+  /**
+   * Turn what was chosen into a character and open it.
+   */
+  function createFromEngine():Void
+  {
+    #if sys
+    if (engineFile == null)
     {
-      // What was actually in there, since a folder picker on a phone says
-      // very little about where it landed and there is no other way to tell
-      // a folder that held nothing from one that was never read at all.
-      var sawWhat:String = brought.saw.length == 0 ? 'Saw nothing in there at all.' : 'Saw: ${brought.saw.slice(0, 6).join(', ')}';
-
-      say('${brought.trouble.length > 0 ? brought.trouble[0] : 'Nothing to bring in.'} $sawWhat');
+      sayImport('Choose the character file first.');
       return;
     }
 
-    var trouble:String = brought.trouble.length > 0 ? ' (${brought.trouble.length} could not be read)' : '';
+    var id:String = SpriteSheetImport.uniqueId(engineFileName ?? 'character', CharacterDataParser.listCharacterIds());
 
-    say('Loading ${brought.characters} characters from ${brought.mods.join(', ')}$trouble...');
+    var built:Null<String> = switch (engine)
+    {
+      case Codename: EngineImport.fromCodename(engineFile, id);
+      default: EngineImport.fromPsych(engineFile, id);
+    };
 
-    // Worth coming back to, now that something came of it.
-    FileUtil.writeStringToPath(SOURCE_NOTE, folder, Force);
+    if (built == null)
+    {
+      sayImport('That did not read as a ${engineName()} character.');
+      return;
+    }
 
-    // Already done, and doing it again on the way back in would only undo
-    // the reload that is about to happen.
-    scannedMods = true;
+    // The sheet, if one came with it. Written under the name the file was
+    // given rather than the one the other engine used, since that is the
+    // name the character now points at.
+    if (engineSheet != null && engineSheetImage != null && engineSheetDescription != null)
+    {
+      try
+      {
+        makeModDirs();
+        FileUtil.writeBytesToPath('$SHEET_DIR/$engineSheet.png', engineSheetImage, Force);
+        FileUtil.writeBytesToPath('$SHEET_DIR/$engineSheet.xml', engineSheetDescription, Force);
+      }
+      catch (error)
+      {
+        sayImport('Could not save the sheet: $error');
+        return;
+      }
 
-    // Come back to the character that is up now, since reloading the assets
-    // rebuilds this state from nothing.
-    pendingCharacterId = characterId;
+      built = pointAtSheet(built, engineSheet);
+    }
 
+    pendingCharacterId = id;
+    pendingCharacterJson = built;
+
+    sayImport('Loading $id...');
     later(reloadAssets);
     #else
-    say('Reading mods needs a filesystem.');
+    sayImport('Importing needs a filesystem.');
     #end
+  }
+
+  /**
+   * Point a character at the sheet that arrived with it.
+   *
+   * The other engine named a sheet inside its own assets; what got saved
+   * here is named after the file that was handed over, and those are not
+   * always the same word.
+   */
+  static function pointAtSheet(characterJson:String, sheet:String):String
+  {
+    try
+    {
+      var read:Dynamic = haxe.Json.parse(characterJson);
+      read.assetPath = 'characters/$sheet';
+
+      return haxe.Json.stringify(read, null, '  ');
+    }
+    catch (error)
+    {
+      return characterJson;
+    }
+  }
+
+  function sayImport(message:String):Void
+  {
+    if (engineImportStatus != null) engineImportStatus.text = message;
   }
 
   // -- playtesting --------------------------------------------------------
@@ -1623,8 +1704,9 @@ class CharacterEditorState extends MusicBeatState
    */
   function clearCharacter():Void
   {
-    showGhost(false);
-
+    // The ghost stays. Standing a new character exactly where another one
+    // stands is most of the reason to leave one, so it outlives the
+    // character it was made from and goes when it is turned off.
     if (stage != null)
     {
       unloadStage();
@@ -2260,6 +2342,9 @@ class CharacterEditorState extends MusicBeatState
    */
   function showGhost(on:Bool):Void
   {
+    // Whatever is standing there now goes either way: turning the ghost on
+    // while one is up means wanting one of the character in front of you.
+
     if (ghost != null)
     {
       remove(ghost);
@@ -3253,4 +3338,14 @@ typedef OffsetEdit =
   var animation:String;
   var x:Float;
   var y:Float;
+}
+
+
+/**
+ * An engine a character can be read out of.
+ */
+enum CharacterEngine
+{
+  Psych;
+  Codename;
 }
