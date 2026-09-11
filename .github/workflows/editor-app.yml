@@ -243,8 +243,19 @@ jobs:
       # 2.5GB of it.
       - name: Fetch the data the compile-time macros read
         run: |
-          git clone --filter=blob:none --sparse --depth 1 \
-            https://github.com/Lennelis/funkin.assets "$RUNNER_TEMP/assets-src"
+          # The same branch the game side is developed on. Cloning the
+          # default branch instead, as this did, meant checking this
+          # repository's code against somebody else's layouts — so a control
+          # added here and referred to there looked like a typo, and a real
+          # typo looked fine.
+          branch="${{ github.ref_name }}"
+          if ! git clone --filter=blob:none --sparse --depth 1 --branch "$branch" \
+               https://github.com/Lennelis/funkin.assets "$RUNNER_TEMP/assets-src" 2>/dev/null; then
+            echo "::warning::no $branch on the assets fork; falling back to its default branch"
+            git clone --filter=blob:none --sparse --depth 1 \
+              https://github.com/Lennelis/funkin.assets "$RUNNER_TEMP/assets-src"
+          fi
+          echo "assets from: $(git -C "$RUNNER_TEMP/assets-src" rev-parse --abbrev-ref HEAD)"
           git -C "$RUNNER_TEMP/assets-src" sparse-checkout set preload/data exclude/data
           mkdir -p assets/preload assets/exclude
           cp -r "$RUNNER_TEMP/assets-src/preload/data" assets/preload/
