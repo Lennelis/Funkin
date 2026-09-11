@@ -1588,11 +1588,17 @@ class CharacterEditorState extends MusicBeatState
   // -- exporting ----------------------------------------------------------
 
   /**
-   * Hand the character file to the system to put somewhere.
+   * Put the character into a mod.
    *
-   * Just the character's own JSON, and wherever the person says — the editor
-   * has a folder it writes sheets into because it has to be able to read them
-   * back, but a finished character is theirs to put where they want it.
+   * A character is two things that have to agree with each other: a file
+   * saying what it is, and the sheet it is drawn from. Handing over only the
+   * file, as this used to, gave someone half a character and a path pointing
+   * at a folder inside this app that nothing else can see.
+   *
+   * So it asks for a mod folder and puts both parts where that mod keeps
+   * them — the file under `data/characters`, the sheet under
+   * `shared/images/characters` — and rewrites the path between them to match
+   * where the sheet has landed.
    */
   function exportCharacter():Void
   {
@@ -1610,77 +1616,159 @@ class CharacterEditorState extends MusicBeatState
       if (offsets != null) animation.offsets = [offsets[0], offsets[1]];
     }
 
-    var json:String = haxe.Json.stringify(data, null, '  ');
-    var bytes = lime.utils.Bytes.fromBytes(haxe.io.Bytes.ofString(json));
+    say('Choose the mod to put $characterId into...');
 
-    say('Choose where to put $characterId.json...');
-
-    FileUtil.saveFile('Export $characterId.json', bytes, [FileUtil.FILE_FILTER_JSON], function(path:String) {
-      say('Exported $characterId.json.');
+    FileUtil.browseForDirectory('Choose a mod folder', function(folder:String) {
+      later(() -> exportInto(folder));
     }, function() {
       say('Export cancelled.');
-    }, '$characterId.json');
-  }
-  /**
-   * Build the stage fresh.
-   *
-   * Rebuilding rather than swapping the character out of the old one: a stage
-   * places a character when it is added, and taking one back off again is
-   * more of its business than an editor should be reaching into.
-   */
-  function loadStage():Void
-  {
-    unloadStage();
-
-    stage = StageRegistry.instance.fetchEntry(STAGE_ID);
-
-    if (stage == null) return;
-
-    stage.revive();
-    ScriptEventDispatcher.callEvent(stage, new ScriptEvent(CREATE, false));
-
-    stage.cameras = [camStage];
-    add(stage);
+    });
   }
 
-  /**
-   * Put the stage away.
-   *
-   * The registry hands out one stage and hands out the same one every time,
-   * so a stage that is merely dropped and fetched again is the same object
-   * with everything still on it — and building it once more builds a second
-   * set of props on top of the first, and a third, until the frame rate says
-   * so. Destroying it is what empties it, and takes whatever was standing on
-   * it along too.
-   */
-  function unloadStage():Void
+  function exportInto(folder:String):Void
   {
-    if (stage == null) return;
-
-    ScriptEventDispatcher.callEvent(stage, new ScriptEvent(DESTROY, false));
-    remove(stage);
-    stage.kill();
-    stage = null;
-
-    // Destroyed along with the stage it was standing on.
-    character = null;
-  }
-
-  function lookAtCharacter():Void
-  {
-    camStage.zoom = 0.7;
-
-    if (character == null)
+    #if sys
+    if (data == null)
     {
-      camStage.scroll.set(0, 0);
+      say('Nothing to export.');
       return;
     }
 
-    var middle = character.getMidpoint();
-    camStage.focusOn(middle);
-    middle.putWeak();
+    var sheet:String = sheetFileName(data.assetPath);
+
+    // A copy, because the path only changes for the exported file: the
+    // character on screen is still being drawn from where it came from.
+    var exported:Dynamic = haxe.Json.parse(haxe.Json.stringify(data));
+    exported.assetPath = 'shared:characters/$sheet';
+
+    var staging:String = '$MOD_ROOT/$MOD_ID/export';
+
+    try
+    {
+      makeModDirs();
+      FileUtil.createDirIfNotExists(staging);
+      FileUtil.writeStringToPath('$staging/$characterId.json', haxe.Json.stringify(exported, null, '  '), Force);
+    }
+    catch (error)
+    {
+      say('Could not prepare the export: $error');
+      return;
+    }
+
+    var placed:Int = 0;
+    if (placeInMod(folder, 'data/characters/$characterId.json', '$staging/$characterId.json')) placed++;
+
+    // The sheet comes out of the asset system rather than off the disk,
+    // which is the only way to reach one that came with the game rather than
+    // having been imported.
+    if (stageSheet(staging, sheet))
+    {
+      if (placeInMod(folder, 'shared/images/characters/$sheet.png', '$staging/$sheet.png')) placed++;
+      if (placeInMod(folder, 'shared/images/characters/$sheet.xml', '$staging/$sheet.xml')) placed++;
+    }
+
+    if (placed == 0)
+    {
+      say('Could not write into that folder.');
+      return;
+    }
+
+    say(placed >= 3 ? 'Exported $characterId and its sheet.' : 'Exported $characterId. The sheet could not be copied; put it in shared/images/characters yourself.');
+    #else
+    say('Exporting needs a filesystem.');
+    #end
   }
 
+  /**
+   * Write the character's sheet out where it can be copied from.
+   */
+  function stageSheet(staging:String, sheet:String):Bool
+  {
+    #if sys
+    if (data == null) return false;
+
+    var imageId:String = Paths.image(data.assetPath);
+    var describedId:String = Paths.file('images/${data.assetPath}.xml');
+
+    if (!openfl.utils.Assets.exists(imageId) || !openfl.utils.Assets.exists(describedId)) return false;
+
+    try
+    {
+      var image:haxe.io.Bytes = openfl.utils.Assets.getBytes(imageId);
+      if (image == null) return false;
+
+      FileUtil.writeBytesToPath('$staging/$sheet.png', lime.utils.Bytes.fromBytes(image), Force);
+      FileUtil.writeStringToPath('$staging/$sheet.xml', openfl.utils.Assets.getText(describedId), Force);
+
+      return true;
+    }
+    catch (error)
+    {
+      return false;
+    }
+    #else
+    return false;
+    #end
+  }
+
+  /**
+   * Put one file inside the chosen mod folder.
+   *
+   * On Android the folder is not a path — the picker hands back a tree URI,
+   * and writing inside one means asking the document provider to make each
+   * directory and file. Everywhere else it is a path and this is a copy.
+   */
+  function placeInMod(folder:String, relativePath:String, sourcePath:String):Bool
+  {
+    #if android
+    if (StringTools.startsWith(folder, 'content://'))
+    {
+      return funkin.external.android.ModFolderUtil.copyInto(folder, relativePath, sourcePath);
+    }
+    #end
+
+    #if sys
+    try
+    {
+      var target:String = haxe.io.Path.join([folder, relativePath]);
+      var directory:String = haxe.io.Path.directory(target);
+
+      // A level at a time, since createDirIfNotExists does not make a whole
+      // branch. Rooted paths keep their leading slash, which splitting on it
+      // would otherwise drop.
+      var walked:String = StringTools.startsWith(directory, '/') ? '/' : '';
+
+      for (piece in directory.split('/'))
+      {
+        if (piece == '') continue;
+
+        walked = (walked == '' || walked == '/') ? walked + piece : '$walked/$piece';
+        FileUtil.createDirIfNotExists(walked);
+      }
+
+      FileUtil.writeBytesToPath(target, FileUtil.readBytesFromPath(sourcePath), Force);
+
+      return true;
+    }
+    catch (error)
+    {
+      return false;
+    }
+    #else
+    return false;
+    #end
+  }
+
+  /**
+   * The name of the sheet an asset path points at, without the library it
+   * lives in or the folders above it.
+   */
+  static function sheetFileName(assetPath:String):String
+  {
+    var withoutLibrary:String = assetPath.indexOf(':') == -1 ? assetPath : assetPath.substr(assetPath.indexOf(':') + 1);
+
+    return haxe.io.Path.withoutDirectory(withoutLibrary);
+  }
 
   // -- making a character out of a sprite sheet ---------------------------
 
