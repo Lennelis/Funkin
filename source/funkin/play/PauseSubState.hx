@@ -74,7 +74,7 @@ class PauseSubState extends MusicBeatSubState
   ];
 
   /**
-   * Pause menu entries for when the game is paused in the Chart Editor preview.
+   * Pause menu entries for when the game is paused in an editor's preview.
    */
   static final PAUSE_MENU_ENTRIES_CHARTING:Array<PauseMenuEntry> = [
     {text: 'Resume', callback: resume},
@@ -82,7 +82,7 @@ class PauseSubState extends MusicBeatSubState
       text: 'Restart Song',
       callback: restartPlayState
     },
-    {text: 'Return to Chart Editor', callback: quitToChartEditor},
+    {text: 'Return to Editor', callback: quitToEditor},
   ];
 
   /**
@@ -996,7 +996,7 @@ class PauseSubState extends MusicBeatSubState
       case Standard | Difficulty:
         metadataDeaths.text = '${PlayState.instance?.deathCounter} Blue Balls';
       case Charting:
-        metadataDeaths.text = 'Chart Editor Preview';
+        metadataDeaths.text = 'Editor Preview';
       case Conversation:
         metadataDeaths.text = 'Dialogue Paused';
       case Cutscene:
@@ -1237,7 +1237,7 @@ class PauseSubState extends MusicBeatSubState
    * @param state The current PauseSubState.
    */
   @:access(funkin.play.PlayState)
-  static function quitToChartEditor(state:PauseSubState):Void
+  static function quitToEditor(state:PauseSubState):Void
   {
     #if FEATURE_MOBILE_ADVERTISEMENTS
     AdMobUtil.removeBanner();
@@ -1262,7 +1262,8 @@ enum PauseMode
   Standard;
 
   /**
-   * The menu displayed when the player pauses the game during a song while in charting mode.
+   * The menu displayed when the player pauses the game during a song being
+   * previewed from an editor.
    */
   Charting;
 

@@ -1398,7 +1398,10 @@ class PlayState extends MusicBeatSubState
               boyfriendPos = currentStage.getBoyfriend().getScreenPosition();
             }
 
-            openPauseSubState(isChartingMode ? Charting : Standard, camPause, lostFocus);
+            // The editor menu whenever an editor is what opened this: the
+            // way out of a preview is back to where it was started from, and
+            // the standard menu's exit leads to the main menu instead.
+            openPauseSubState(isSubState ? Charting : Standard, camPause, lostFocus);
           }
 
           #if FEATURE_DISCORD_RPC

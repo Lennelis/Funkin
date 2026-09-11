@@ -9,15 +9,20 @@ import funkin.data.animation.AnimationData;
 import funkin.data.character.CharacterData;
 import funkin.data.character.CharacterData.CharacterDataParser;
 import funkin.data.character.CharacterData.HealthIconData;
+import funkin.data.song.SongRegistry;
 import funkin.data.stage.StageRegistry;
 import funkin.modding.events.ScriptEvent;
 import funkin.modding.events.ScriptEventDispatcher;
 import funkin.graphics.FunkinCamera;
 import funkin.play.character.BaseCharacter;
 import funkin.play.character.BaseCharacter.CharacterType;
+import funkin.play.PlayStatePlaylist;
+import funkin.play.song.Song;
+import funkin.play.song.Song.SongDifficulty;
 import funkin.play.stage.Stage;
 import funkin.ui.FullScreenScaleMode;
 import funkin.ui.MusicBeatState;
+import funkin.ui.transition.LoadingState;
 import funkin.util.FileUtil;
 import funkin.util.FileUtil.SelectedFileData;
 import funkin.util.assets.FlxAnimationUtil;
@@ -264,6 +269,42 @@ class CharacterEditorState extends MusicBeatState
   var animOffsetX:Null<NumberStepper> = null;
   var animOffsetY:Null<NumberStepper> = null;
   var copyOffsetDropdown:Null<DropDown> = null;
+  var playtestSongDropdown:Null<DropDown> = null;
+  var playtestDifficultyDropdown:Null<DropDown> = null;
+
+  /**
+   * The song a playtest would play, and on which difficulty.
+   */
+  var playtestSongId:Null<String> = null;
+
+  var playtestDifficulty:Null<String> = null;
+
+  /**
+   * Whether the game plays the song itself during a playtest.
+   *
+   * On by default: a playtest is for watching the character, and watching it
+   * is hard to do while hitting notes.
+   */
+  var playtestBotPlay:Bool = true;
+
+  /**
+   * What the song said before a playtest put this character into it.
+   *
+   * The registry hands out one song and hands out the same one every time,
+   * so the override has to be taken back off again afterwards or it is still
+   * there the next time anything asks for that song.
+   */
+  var playtestOverride:Null<PlaytestOverride> = null;
+
+  /**
+   * Which animation was up when the playtest started.
+   */
+  var playtestAnimation:String = '';
+
+  /**
+   * Which windows were up when the playtest started.
+   */
+  var playtestWindows:Array<String> = [];
 
   /**
    * Which animation the copy dropdown is pointing at.
@@ -471,6 +512,7 @@ class CharacterEditorState extends MusicBeatState
     });
     wireMenuItem('menuExport', exportCharacter);
     wireMenuItem('menuReload', () -> loadCharacter(characterId, true));
+    wireMenuItem('menuPlaytest', () -> showWindow('windowPlaytest', true));
     wireMenuItem('menuExit', () -> later(goBack));
     wireMenuItem('menuUndoOffset', undoOffset);
     wireMenuItem('menuResetOffset', resetOffset);
@@ -569,12 +611,14 @@ class CharacterEditorState extends MusicBeatState
     var characterData = openWindow('windowCharacterData', 'ui/character-editor/character-data-view', place);
     var healthIcon = openWindow('windowHealthIcon', 'ui/character-editor/health-icon-view', place);
     var newCharacter = openWindow('windowNewCharacter', 'ui/character-editor/new-character-view', place);
+    var playtest = openWindow('windowPlaytest', 'ui/character-editor/playtest-view', place);
 
     buildCharacterSelect(select);
     buildAnimationWindow(animation);
     buildCharacterDataWindow(characterData);
     buildHealthIconWindow(healthIcon);
     buildNewCharacterWindow(newCharacter);
+    buildPlaytestWindow(playtest);
 
     newCharacterDialog = newCharacter;
 
@@ -1038,6 +1082,48 @@ class CharacterEditorState extends MusicBeatState
     }
   }
 
+  function buildPlaytestWindow(dialog:Null<CollapsibleDialog>):Void
+  {
+    if (dialog == null) return;
+
+    playtestSongDropdown = dialog.findComponent('playtestSongDropdown', DropDown);
+    if (playtestSongDropdown != null)
+    {
+      playtestSongDropdown.dropdownSize = 8;
+      playtestSongDropdown.onChange = function(event:UIEvent) {
+        if (populating) return;
+
+        var picked:Null<String> = event.data?.id;
+        if (picked == null || picked == playtestSongId) return;
+
+        playtestSongId = picked;
+        fillPlaytestDifficulties();
+      };
+    }
+
+    playtestDifficultyDropdown = dialog.findComponent('playtestDifficultyDropdown', DropDown);
+    if (playtestDifficultyDropdown != null)
+    {
+      playtestDifficultyDropdown.dropdownSize = 6;
+      playtestDifficultyDropdown.onChange = function(event:UIEvent) {
+        if (!populating) playtestDifficulty = event.data?.text;
+      };
+    }
+
+    var botCheck = dialog.findComponent('playtestBotCheck', CheckBox);
+    if (botCheck != null)
+    {
+      botCheck.selected = playtestBotPlay;
+      botCheck.onChange = function(_) {
+        if (!populating) playtestBotPlay = botCheck.selected;
+      };
+    }
+
+    bindButton(dialog, 'playtestButton', playtest);
+
+    fillPlaytestSongs();
+  }
+
   function buildNewCharacterWindow(dialog:Null<CollapsibleDialog>):Void
   {
     if (dialog == null) return;
@@ -1070,6 +1156,241 @@ class CharacterEditorState extends MusicBeatState
 
   // -- the character ------------------------------------------------------
 
+  // -- playtesting --------------------------------------------------------
+
+  /**
+   * Fill in the songs there are to play.
+   */
+  function fillPlaytestSongs():Void
+  {
+    if (playtestSongDropdown == null) return;
+
+    var was = populating;
+    populating = true;
+
+    playtestSongDropdown.dataSource.clear();
+
+    var ids:Array<String> = SongRegistry.instance.listEntryIds();
+    ids.sort(SortUtil.alphabetically);
+
+    for (id in ids)
+    {
+      var song:Null<Song> = SongRegistry.instance.fetchEntry(id);
+      if (song == null) continue;
+
+      // Named by the title rather than by the id, which is what anyone
+      // choosing a song to watch a character in is looking for.
+      playtestSongDropdown.dataSource.add({text: song.songName, id: id});
+    }
+
+    populating = was;
+  }
+
+  /**
+   * Fill in the difficulties the chosen song has.
+   */
+  function fillPlaytestDifficulties():Void
+  {
+    if (playtestDifficultyDropdown == null) return;
+
+    var was = populating;
+    populating = true;
+
+    playtestDifficultyDropdown.dataSource.clear();
+    playtestDifficulty = null;
+
+    var song:Null<Song> = playtestSongId == null ? null : SongRegistry.instance.fetchEntry(playtestSongId);
+    var difficulties:Array<String> = song == null ? [] : song.listDifficulties(Constants.DEFAULT_VARIATION);
+
+    for (difficulty in difficulties)
+      playtestDifficultyDropdown.dataSource.add({text: difficulty});
+
+    populating = was;
+
+    // The first one, so that choosing a song and pressing play works without
+    // a second choice nobody asked for.
+    if (difficulties.length > 0)
+    {
+      playtestDifficulty = difficulties[0];
+      selectInDropdown(playtestDifficultyDropdown, 0);
+    }
+  }
+
+  /**
+   * Drop the character into a song and watch it work.
+   *
+   * The song plays as a substate over the editor, so that closing it comes
+   * straight back here with everything as it was left -- which matters,
+   * since the offsets being checked have not been written down anywhere yet.
+   */
+  function playtest():Void
+  {
+    if (data == null || character == null)
+    {
+      say('Nothing to play.');
+      return;
+    }
+
+    if (playtestSongId == null)
+    {
+      say('Pick a song first.');
+      return;
+    }
+
+    var song:Null<Song> = SongRegistry.instance.fetchEntry(playtestSongId);
+
+    if (song == null)
+    {
+      say('Could not load $playtestSongId.');
+      return;
+    }
+
+    var difficultyId:Null<String> = playtestDifficulty ?? song.listDifficulties(Constants.DEFAULT_VARIATION)[0];
+    var difficulty:Null<SongDifficulty> = difficultyId == null ? null : song.getDifficulty(difficultyId, Constants.DEFAULT_VARIATION);
+
+    if (difficulty == null || difficulty.characters == null)
+    {
+      say('${song.songName} has nothing to play on $difficultyId.');
+      return;
+    }
+
+    // The character is built from the file, and the offsets being tested are
+    // still only on the sprite.
+    harvestOffsets();
+
+    var characters = difficulty.characters;
+
+    playtestOverride =
+      {
+        characters: characters,
+        player: characters.player,
+        girlfriend: characters.girlfriend,
+        opponent: characters.opponent
+      };
+
+    switch (characterType)
+    {
+      case DAD:
+        characters.opponent = characterId;
+      case GF:
+        characters.girlfriend = characterId;
+      default:
+        characters.player = characterId;
+    }
+
+    playtestAnimation = animationName;
+
+    // The registry hands out one stage per id and the song is about to ask
+    // for the same one this is standing on, which it would then fill with
+    // its own characters and destroy on the way out.
+    clearCharacter();
+
+    // Put the windows away rather than only stopping them being drawn: they
+    // belong to the toolkit rather than to this state, and one left up but
+    // invisible would still be taking the taps that land on top of it.
+    playtestWindows = [];
+    for (id in windows.keys())
+    {
+      var window = windows.get(id);
+      if (window != null && window.shown)
+      {
+        playtestWindows.push(id);
+        showWindow(id, false);
+      }
+    }
+
+    if (menubar != null) menubar.hidden = true;
+
+    // The rest of the editor is drawn by this state, which stands down while
+    // the song is up.
+    persistentUpdate = false;
+    persistentDraw = false;
+
+    PlayStatePlaylist.reset();
+
+    subStateClosed.add(afterPlaytest);
+
+    LoadingState.loadPlayState(
+      {
+        targetSong: song,
+        targetDifficulty: difficultyId,
+        targetVariation: Constants.DEFAULT_VARIATION,
+        botPlayMode: playtestBotPlay,
+        // Nothing about a playtest should reach the save file, and dying
+        // partway through a character's animations helps nobody.
+        practiceMode: true
+      }, false, true);
+  }
+
+  /**
+   * Pick the editor back up after a playtest.
+   */
+  function afterPlaytest(_:flixel.FlxSubState):Void
+  {
+    subStateClosed.remove(afterPlaytest);
+
+    if (playtestOverride != null)
+    {
+      var was = playtestOverride;
+      was.characters.player = was.player;
+      was.characters.girlfriend = was.girlfriend;
+      was.characters.opponent = was.opponent;
+
+      playtestOverride = null;
+    }
+
+    // The song pointed the asset paths at its own level on the way in.
+    Paths.setCurrentLevel(null);
+
+    persistentUpdate = true;
+    persistentDraw = true;
+
+    if (menubar != null) menubar.hidden = false;
+
+    for (id in playtestWindows)
+      showWindow(id, true);
+
+    playtestWindows = [];
+
+    FlxG.sound.music?.stop();
+
+    // Built again from the file, which is where the offsets were put before
+    // the song took the character away.
+    loadCharacter(characterId, true);
+
+    if (playtestAnimation != '' && animationNames.indexOf(playtestAnimation) != -1)
+    {
+      playAnimation(playtestAnimation);
+      selectInDropdown(animationDropdown, animationNames.indexOf(playtestAnimation));
+    }
+
+    say('Back from the playtest.');
+  }
+
+  /**
+   * Take the character, and whatever it is standing on, back off the screen.
+   *
+   * The stage owns what it was given and destroys it as it goes, so a
+   * character standing on one is not the editor's to take down. One with no
+   * stage under it is.
+   */
+  function clearCharacter():Void
+  {
+    showGhost(false);
+
+    if (stage != null)
+    {
+      unloadStage();
+    }
+    else if (character != null)
+    {
+      remove(character);
+      character.destroy();
+    }
+
+    character = null;
+  }
+
   /**
    * @param force Load it again even if it is the one already up, for when
    *   something other than which character it is has changed.
@@ -1088,22 +1409,7 @@ class CharacterEditorState extends MusicBeatState
     // person choosing it.
     if (!force && id == characterId && character != null) return;
 
-    // The stage owns what it was given and destroys it as it goes, so a
-    // character standing on one is not the editor's to take down. One with
-    // no stage under it is.
-    if (stage != null)
-    {
-      unloadStage();
-    }
-    else if (character != null)
-    {
-      remove(character);
-      character.destroy();
-    }
-
-    character = null;
-
-    showGhost(false);
+    clearCharacter();
 
     characterId = id;
     data = CharacterDataParser.fetchCharacterData(id);
@@ -1777,13 +2083,7 @@ class CharacterEditorState extends MusicBeatState
       return;
     }
 
-    // The sprite has been carrying the offsets while they were dragged; put
-    // them back into the data before it is written.
-    for (animation in data.animations)
-    {
-      var offsets = character.animationOffsets.get(animation.name);
-      if (offsets != null) animation.offsets = [offsets[0], offsets[1]];
-    }
+    harvestOffsets();
 
     say('Choose the mod to put $characterId into...');
 
@@ -1792,6 +2092,25 @@ class CharacterEditorState extends MusicBeatState
     }, function() {
       say('Export cancelled.');
     });
+  }
+
+  /**
+   * Put the offsets back into the file.
+   *
+   * The sprite carries them while they are being dragged, since that is what
+   * draws with them, so anything that reads the file rather than the sprite
+   * -- writing it out, or building the character again for a playtest --
+   * has to collect them first.
+   */
+  function harvestOffsets():Void
+  {
+    if (data == null || character == null) return;
+
+    for (animation in data.animations)
+    {
+      var offsets = character.animationOffsets.get(animation.name);
+      if (offsets != null) animation.offsets = [offsets[0], offsets[1]];
+    }
   }
 
   function exportInto(folder:String):Void
@@ -2621,6 +2940,17 @@ typedef EditorWindow =
   var shown:Bool;
   var left:Null<Float>;
   var top:Null<Float>;
+}
+
+/**
+ * What a song said about its characters before a playtest changed it.
+ */
+typedef PlaytestOverride =
+{
+  var characters:funkin.data.song.SongData.SongCharacterData;
+  var player:String;
+  var girlfriend:String;
+  var opponent:String;
 }
 
 /**
