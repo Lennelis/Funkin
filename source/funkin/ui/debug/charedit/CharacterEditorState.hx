@@ -86,6 +86,25 @@ class CharacterEditorState extends MusicBeatState
   static final SHEET_DIR:String = 'mods/editor/images/characters';
 
   /**
+   * Where the folder someone last read mods out of is written down.
+   *
+   * A dotted name so that the mod scan does not take it for a mod.
+   */
+  static final SOURCE_NOTE:String = 'mods/.mod-source';
+
+  /**
+   * The two apps, for guessing where the game keeps its own mods.
+   *
+   * They stand side by side under the same parent, so the editor's own
+   * storage folder names the game's. Reading it that way only works where
+   * the system still allows it, which is why it is a guess rather than the
+   * way in.
+   */
+  static final EDITOR_PACKAGE:String = 'dev.funkin.editors';
+
+  static final GAME_PACKAGE:String = 'me.funkin.fnf';
+
+  /**
    * The stage a character is shown on. The one the game opens on, so what you
    * see here is what most songs will show.
    */
@@ -163,6 +182,15 @@ class CharacterEditorState extends MusicBeatState
     .dropdown-popup:mobile { width: 360px; }
     .dropdown-popup .listview .itemrenderer { padding: 16px 12px; }
   ';
+
+  /**
+   * Whether this run has already gone looking for the game's mods.
+   *
+   * Once per run rather than once per visit: reading them means reloading
+   * every asset, and doing that each time somebody comes back to this
+   * screen would be a pause for nothing.
+   */
+  static var scannedMods:Bool = false;
 
   /**
    * Which character to come up on after the editor has been rebuilt.
@@ -459,6 +487,13 @@ class CharacterEditorState extends MusicBeatState
     // Made now rather than when it is first needed, so that the folder is
     // there to be found by someone plugging the phone into a computer.
     makeModDirs();
+
+    // Whatever was read last time, read again, in case it has changed.
+    if (!scannedMods)
+    {
+      scannedMods = true;
+      readRememberedMods();
+    }
 
     // A character imported just before the reload that brought us back here
     // has no file anywhere; putting it in the cache is what makes it real
@@ -1200,11 +1235,81 @@ class CharacterEditorState extends MusicBeatState
   {
     say('Choose the folder your mods are in...');
 
+    // Asked for once and kept, so that the next run can read the same folder
+    // without asking again. Without this the system hands over access for as
+    // long as the app is up and takes it back afterwards.
+    #if android
+    lime.system.System.setHint('SDL_ANDROID_ALLOW_PERSISTENT_FOLDER_ACCESS', '1');
+    #end
+
     FileUtil.browseForDirectory('Choose a mods folder', function(folder:String) {
       later(() -> readMods(folder));
     }, function() {
       say('Nothing loaded.');
     });
+  }
+
+  /**
+   * Read the mods again from wherever they were last read from.
+   *
+   * Runs on the way in rather than waiting to be asked: someone who has
+   * already said where their mods are should not have to say it again, and a
+   * mod edited since is one whose characters have changed.
+   */
+  function readRememberedMods():Void
+  {
+    #if sys
+    var source:Null<String> = rememberedSource();
+
+    if (source == null) return;
+
+    var brought = ModImport.importFrom(source, MOD_ROOT);
+
+    if (brought.mods.length == 0) return;
+
+    // Everything downstream reads what Polymod found at startup, which was
+    // before any of this arrived. Reloading rather than resetting the state,
+    // since there is not yet a state worth keeping.
+    funkin.modding.PolymodHandler.forceReloadAssets();
+    #end
+  }
+
+  /**
+   * The folder to read mods out of without being told.
+   */
+  function rememberedSource():Null<String>
+  {
+    #if sys
+    // Wherever it was last time, which the system still lets this app reach
+    // because the picker was asked for lasting access.
+    if (FileUtil.fileExists(SOURCE_NOTE))
+    {
+      var saved:Null<String> = FileUtil.readStringFromPath(SOURCE_NOTE);
+
+      if (saved != null && StringTools.trim(saved) != '') return StringTools.trim(saved);
+    }
+
+    // Failing that, the game's own folder, on the chance that this device
+    // still allows one app to read another's. Newer ones do not, and then
+    // there is nothing to do but ask.
+    var beside:String = StringTools.replace(Sys.getCwd(), EDITOR_PACKAGE, GAME_PACKAGE);
+
+    if (beside != Sys.getCwd())
+    {
+      var mods:String = haxe.io.Path.join([beside, 'mods']);
+
+      try
+      {
+        if (sys.FileSystem.exists(mods) && sys.FileSystem.isDirectory(mods)) return mods;
+      }
+      catch (error)
+      {
+        // Not readable, which is the usual answer and not worth saying.
+      }
+    }
+    #end
+
+    return null;
   }
 
   function readMods(folder:String):Void
@@ -1228,6 +1333,13 @@ class CharacterEditorState extends MusicBeatState
     var trouble:String = brought.trouble.length > 0 ? ' (${brought.trouble.length} could not be read)' : '';
 
     say('Loading ${brought.characters} characters from ${brought.mods.join(', ')}$trouble...');
+
+    // Worth coming back to, now that something came of it.
+    FileUtil.writeStringToPath(SOURCE_NOTE, folder, Force);
+
+    // Already done, and doing it again on the way back in would only undo
+    // the reload that is about to happen.
+    scannedMods = true;
 
     // Come back to the character that is up now, since reloading the assets
     // rebuilds this state from nothing.

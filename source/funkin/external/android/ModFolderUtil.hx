@@ -26,7 +26,7 @@ class ModFolderUtil
 
     if (copyIntoJNI == null) return false;
 
-    return copyIntoJNI(treeUri, relativePath, sourcePath) == true;
+    return copyIntoJNI(treeUri, relativePath, absolute(sourcePath)) == true;
   }
 
   /**
@@ -69,7 +69,24 @@ class ModFolderUtil
 
     if (copyOutJNI == null) return false;
 
-    return copyOutJNI(treeUri, relativePath, destPath) == true;
+    return copyOutJNI(treeUri, relativePath, absolute(destPath)) == true;
+  }
+
+  /**
+   * A path the Java side will understand.
+   *
+   * The game moves its own working directory at startup and everything here
+   * writes paths against that — but the move is the native one, and Java
+   * resolves a relative path against the process's own working directory,
+   * which on Android is the root of the filesystem and not somewhere
+   * anything can be read from or written to. So a path crossing over is
+   * spelled out in full first.
+   */
+  static function absolute(path:String):String
+  {
+    if (StringTools.startsWith(path, '/')) return path;
+
+    return haxe.io.Path.join([Sys.getCwd(), path]);
   }
 }
 #end
