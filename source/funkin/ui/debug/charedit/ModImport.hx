@@ -4,6 +4,8 @@ package funkin.ui.debug.charedit;
 import sys.FileSystem;
 import sys.io.File;
 #end
+import funkin.util.FileUtil;
+import funkin.util.FileUtil.FileWriteMode;
 
 /**
  * Bringing characters in from mods that live somewhere else on the device.
@@ -12,7 +14,7 @@ import sys.io.File;
  * app cannot simply read another's — but the game publishes that folder
  * through a document provider, which means the system folder picker can
  * reach it. What comes back from the picker is a tree URI rather than a
- * path, so the copy goes through the document provider too.
+ * path, so the reading goes through the document provider too.
  *
  * Only the parts of a mod that a character needs are taken. A mod is mostly
  * songs and video, and copying all of that to look at a character would take
@@ -33,60 +35,33 @@ class ModImport
   /**
    * Find the mods in a folder and copy their characters into the editor's own.
    *
-   * Forgiving about what was picked: the game's data folder, the mods folder
-   * inside it, or a single mod all work, since which of those someone lands
-   * on in a file picker is mostly luck.
-   *
    * @param folder What the folder picker returned.
    * @param modRoot The editor's own mods folder.
    * @return What was brought in.
    */
   public static function importFrom(folder:String, modRoot:String):ImportResult
   {
-    var result:ImportResult = {mods: [], characters: 0, trouble: []};
+    var result:ImportResult = {mods: [], characters: 0, trouble: [], saw: []};
 
     #if sys
-    var meta:String = polymod.PolymodConfig.modMetadataFile;
+    FileUtil.createDirIfNotExists(modRoot);
 
-    funkin.util.FileUtil.createDirIfNotExists(modRoot);
+    // Kept for the sake of saying what was there when nothing comes of it. A
+    // folder picker on a phone gives very little away about where it has
+    // actually landed, and "found nothing" on its own is not something
+    // anyone can act on.
+    result.saw = entries(folder, '');
 
-    // A single mod, picked on its own. It has no directory name to take, so
-    // the copy is named after what the mod calls itself.
-    if (names(folder, '').indexOf(meta) != -1)
+    var places:Array<Place> = findMods(folder);
+
+    if (places.length == 0)
     {
-      if (importOne(folder, '', modRoot, nameFromMeta(folder, '', modRoot), result) == null)
-      {
-        result.trouble.push('No characters in that mod.');
-      }
-
+      result.trouble.push('No data/characters folder in there.');
       return result;
     }
 
-    // Otherwise it is either the folder the mods are in, or the folder that
-    // one is in -- which of those someone lands on in a file picker is
-    // mostly luck, so both work.
-    var inside:String = folders(folder, '').indexOf('mods') != -1 ? 'mods' : '';
-
-    var dirs:Array<String> = folders(folder, inside);
-
-    if (dirs.length == 0)
-    {
-      result.trouble.push('No mods in there.');
-      return result;
-    }
-
-    for (dir in dirs)
-    {
-      var at:String = inside == '' ? dir : '$inside/$dir';
-
-      // A folder without one of these is not a mod, and the game would skip
-      // it too rather than guess.
-      if (names(folder, at).indexOf(meta) == -1) continue;
-
-      importOne(folder, at, modRoot, dir, result);
-    }
-
-    if (result.mods.length == 0 && result.trouble.length == 0) result.trouble.push('No mods in there.');
+    for (place in places)
+      importOne(folder, place.at, modRoot, place.named, result);
     #else
     result.trouble.push('Reading mods needs a filesystem.');
     #end
@@ -96,53 +71,116 @@ class ModImport
 
   #if sys
   /**
-   * Copy one mod's characters in, under a name of its own.
+   * Where the mods are inside whatever was picked.
    *
-   * @return The name it was filed under, or null if it had no characters.
+   * Which of the game's data folder, its mods folder, or one mod on its own
+   * somebody lands on in a file picker is mostly luck, so all three work.
+   *
+   * What makes a folder a mod here is having characters in it, rather than
+   * having the metadata file the game looks for: a mod missing that file is
+   * a mod the game would skip and one worth reading anyway, and the copy is
+   * given a metadata file of its own either way.
    */
-  static function importOne(folder:String, at:String, modRoot:String, named:String, result:ImportResult):Null<String>
+  static function findMods(folder:String):Array<Place>
+  {
+    var places:Array<Place> = [];
+
+    if (hasCharacters(folder, '')) places.push({at: '', named: nameFromMeta(folder, '')});
+
+    var top:Array<String> = folders(folder, '');
+
+    for (root in ['', 'mods'])
+    {
+      if (root != '' && top.indexOf(root) == -1) continue;
+
+      for (dir in folders(folder, root))
+      {
+        var at:String = root == '' ? dir : '$root/$dir';
+
+        if (hasCharacters(folder, at)) places.push({at: at, named: asFolderName(dir)});
+      }
+    }
+
+    return places;
+  }
+
+  /**
+   * Whether a folder holds characters, which is what makes it worth taking.
+   */
+  static function hasCharacters(folder:String, at:String):Bool
+  {
+    for (name in names(folder, join(at, 'data/characters')))
+      if (haxe.io.Path.extension(name) == 'json') return true;
+
+    return false;
+  }
+
+  /**
+   * Copy one mod's characters in, under a name of its own.
+   */
+  static function importOne(folder:String, at:String, modRoot:String, named:String, result:ImportResult):Void
   {
     var meta:String = polymod.PolymodConfig.modMetadataFile;
     var dest:String = haxe.io.Path.join([modRoot, named]);
 
-    // Nothing to show for it unless it has characters, and a mod folder with
-    // no characters in it would be one more thing for the game to load.
-    if (names(folder, join(at, 'data/characters')).length == 0) return null;
+    FileUtil.createDirIfNotExists(dest);
 
-    funkin.util.FileUtil.createDirIfNotExists(modRoot);
-    funkin.util.FileUtil.createDirIfNotExists(dest);
+    // Taken if it is there and written if it is not: without one the game
+    // skips the folder, so the copy has to have one whatever the original
+    // did.
+    var metaPath:String = haxe.io.Path.join([dest, meta]);
 
-    if (!pull(folder, join(at, meta), haxe.io.Path.join([dest, meta])))
-    {
-      result.trouble.push('Could not read $named.');
-      return null;
-    }
+    if (!pull(folder, join(at, meta), metaPath)) FileUtil.writeStringToPath(metaPath, ownMeta(named), Force);
+
+    var copied:Bool = false;
 
     for (part in WANTED)
     {
-      // Asked for whether or not it is there: a mod has its art under one of
-      // these and not the others, and which one is not worth guessing.
-      if (names(folder, join(at, part)).length == 0) continue;
+      // Asked for whether or not it is there: a mod keeps its art under one
+      // of these and not the others, and which one is not worth guessing.
+      if (entries(folder, join(at, part)).length == 0) continue;
 
-      if (!pull(folder, join(at, part), haxe.io.Path.join([dest, part]))) result.trouble.push('Could not read $named/$part.');
+      if (pull(folder, join(at, part), haxe.io.Path.join([dest, part]))) copied = true;
+      else
+        result.trouble.push('Could not read $named/$part.');
     }
 
-    var brought:Int = characterCount(haxe.io.Path.join([dest, 'data/characters']));
+    if (!copied)
+    {
+      result.trouble.push('Nothing readable in $named.');
+      return;
+    }
 
     result.mods.push(named);
-    result.characters += brought;
+    result.characters += characterCount(haxe.io.Path.join([dest, 'data/characters']));
+  }
 
-    return named;
+  /**
+   * What makes the copy a mod, for one that arrived without it.
+   *
+   * `api_version` has to satisfy the game's own rule or the scan skips the
+   * folder with a warning, exactly as if the file were not there.
+   */
+  static function ownMeta(named:String):String
+  {
+    return haxe.Json.stringify({
+      title: named,
+      description: 'Characters read out of a mod folder.',
+      contributors: [],
+      api_version: "0.8.0",
+      mod_version: "1.0.0",
+      license: "Unlicense"
+    }, null, '  ');
   }
 
   /**
    * What a mod calls itself, for when it was picked on its own and there is
    * no directory name to take.
    */
-  static function nameFromMeta(folder:String, at:String, modRoot:String):String
+  static function nameFromMeta(folder:String, at:String):String
   {
     var meta:String = polymod.PolymodConfig.modMetadataFile;
-    var scratch:String = haxe.io.Path.join([modRoot, '.picked-$meta']);
+    var scratch:String = 'picked-$meta';
 
     var title:String = 'imported';
 
@@ -159,7 +197,7 @@ class ModImport
       }
       catch (e)
       {
-        // Left as it is; a mod whose metadata will not parse still has
+        // Left as it is. A mod whose metadata will not parse still has
         // characters worth reading.
       }
 
@@ -167,7 +205,10 @@ class ModImport
       {
         FileSystem.deleteFile(scratch);
       }
-      catch (e) {}
+      catch (e)
+      {
+        // Nothing to be done about a scratch file that will not go.
+      }
     }
 
     return asFolderName(title);
@@ -295,4 +336,18 @@ typedef ImportResult =
   var mods:Array<String>;
   var characters:Int;
   var trouble:Array<String>;
+
+  /**
+   * What was in the picked folder, for saying so when nothing came of it.
+   */
+  var saw:Array<String>;
+}
+
+/**
+ * A mod found inside the picked folder, and what to file it under.
+ */
+typedef Place =
+{
+  var at:String;
+  var named:String;
 }

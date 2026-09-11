@@ -31,6 +31,20 @@ public class ModFolderExtension extends Extension
   public static final String LOG_TAG = "ModFolderExtension";
 
   /**
+   * Something to ask the content resolver through.
+   *
+   * The activity as well as the context, because which of the two the host
+   * has filled in is not something anything here gets a say in, and a null
+   * one turns every call below into a silent nothing.
+   */
+  private static Context context()
+  {
+    if (mainContext != null) return mainContext;
+
+    return mainActivity;
+  }
+
+  /**
    * Copy a file into a folder the user picked, making the directories on the
    * way if they are not there.
    *
@@ -72,9 +86,9 @@ public class ModFolderExtension extends Extension
       // A document provider will happily make a second file with the same
       // name rather than replacing the first, so an existing one goes.
       Uri existing = findChild(directory, name);
-      if (existing != null) DocumentsContract.deleteDocument(mainContext.getContentResolver(), existing);
+      if (existing != null) DocumentsContract.deleteDocument(context().getContentResolver(), existing);
 
-      Uri file = DocumentsContract.createDocument(mainContext.getContentResolver(), directory, "application/octet-stream", name);
+      Uri file = DocumentsContract.createDocument(context().getContentResolver(), directory, "application/octet-stream", name);
       if (file == null)
       {
         Log.e(LOG_TAG, "Could not create: " + relativePath);
@@ -87,7 +101,7 @@ public class ModFolderExtension extends Extension
       try
       {
         in = new FileInputStream(source);
-        out = mainContext.getContentResolver().openOutputStream(file, "wt");
+        out = context().getContentResolver().openOutputStream(file, "wt");
 
         if (out == null)
         {
@@ -143,7 +157,7 @@ public class ModFolderExtension extends Extension
     {
       Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(directory, DocumentsContract.getDocumentId(directory));
 
-      cursor = mainContext.getContentResolver()
+      cursor = context().getContentResolver()
         .query(children,
           new String[]
           {
@@ -216,7 +230,7 @@ public class ModFolderExtension extends Extension
       {
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(source, DocumentsContract.getDocumentId(source));
 
-        cursor = mainContext.getContentResolver()
+        cursor = context().getContentResolver()
           .query(children,
             new String[]
             {
@@ -260,7 +274,7 @@ public class ModFolderExtension extends Extension
 
     try
     {
-      in = mainContext.getContentResolver().openInputStream(source);
+      in = context().getContentResolver().openInputStream(source);
 
       if (in == null)
       {
@@ -306,7 +320,7 @@ public class ModFolderExtension extends Extension
 
     try
     {
-      cursor = mainContext.getContentResolver()
+      cursor = context().getContentResolver()
         .query(document, new String[] {DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
 
       if (cursor == null || !cursor.moveToFirst()) return false;
@@ -362,7 +376,7 @@ public class ModFolderExtension extends Extension
 
     try
     {
-      return DocumentsContract.createDocument(mainContext.getContentResolver(), parent, DocumentsContract.Document.MIME_TYPE_DIR, name);
+      return DocumentsContract.createDocument(context().getContentResolver(), parent, DocumentsContract.Document.MIME_TYPE_DIR, name);
     }
     catch (Exception e)
     {
@@ -385,7 +399,7 @@ public class ModFolderExtension extends Extension
     {
       Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(parent, DocumentsContract.getDocumentId(parent));
 
-      cursor = mainContext.getContentResolver()
+      cursor = context().getContentResolver()
         .query(children, new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null);
 
       if (cursor == null) return null;

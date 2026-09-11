@@ -750,6 +750,13 @@ class CharacterEditorState extends MusicBeatState
     var stepper = owner.findComponent(id, NumberStepper);
     if (stepper == null) return;
 
+    // Pressing either arrow focuses the whole stepper, and a stepper taking
+    // focus hands it straight to the number in the middle -- which on a
+    // phone is a soft keyboard over the screen, once, before the arrow can
+    // be pressed again. Nothing here is worth typing that isn't easier to
+    // drag or step.
+    stepper.allowFocus = false;
+
     refreshers.push(function() stepper.pos = read());
 
     stepper.onChange = function(_) {
@@ -1209,7 +1216,12 @@ class CharacterEditorState extends MusicBeatState
 
     if (brought.mods.length == 0)
     {
-      say(brought.trouble.length > 0 ? brought.trouble[0] : 'Nothing to bring in from there.');
+      // What was actually in there, since a folder picker on a phone says
+      // very little about where it landed and there is no other way to tell
+      // a folder that held nothing from one that was never read at all.
+      var sawWhat:String = brought.saw.length == 0 ? 'Saw nothing in there at all.' : 'Saw: ${brought.saw.slice(0, 6).join(', ')}';
+
+      say('${brought.trouble.length > 0 ? brought.trouble[0] : 'Nothing to bring in.'} $sawWhat');
       return;
     }
 
