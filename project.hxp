@@ -1598,13 +1598,18 @@ class Project extends HXProject
   {
     info('Configuring application icons...');
 
-    if (hasDefine("EDITOR_APP"))
+    if (hasDefine("EDITOR_APP") && isAndroid())
     {
-      // One square image, which lime scales into the densities Android asks
-      // for. The game's own icons are a set of adaptive-icon layers living in
-      // the art submodule; the editors are a separate app with their own
-      // face, and one that does not depend on a submodule the build may not
-      // be able to reach.
+      // The editors are a separate app with their own face, and one that does
+      // not live in the art submodule the build may not be able to reach.
+      // These have to arrive as a res/ directory rather than a single image:
+      // DataFolderProvider names R.mipmap.ic_launcher, which lime only ever
+      // writes on this path -- a lone icon becomes drawable/icon instead, and
+      // the Java then fails to compile. See editor-art/make-android-res.py.
+      adaptiveIcon = new AdaptiveIcon('editor-art/android-res/', true);
+    }
+    else if (hasDefine("EDITOR_APP"))
+    {
       addIcon("editor-art/icon.png");
     }
     else if (isAndroid())
