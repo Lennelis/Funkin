@@ -231,21 +231,28 @@ jobs:
 
           echo "made $(find assets -type d | wc -l) asset directories"
 
-      # The registries are built by a macro that reads assets/preload/data
-      # from disk at compile time, so empty directories are not enough for
-      # those — readDirectory throws on a path that is not there.
+      # Two macros read the assets from disk at compile time, so empty
+      # directories are not enough for either: the registries read
+      # assets/preload/data, and HaxeUI builds the editors' own components
+      # out of the layouts under assets/exclude/data. A layout that is not
+      # there fails the build, and a layout that is there but wrong fails it
+      # too — which is the point, since that is a class of mistake nothing
+      # else here would catch.
       #
-      # Only the JSON is needed, not the audio and images, so this takes that
-      # one path out of the assets fork rather than the whole 2.5GB of it.
-      - name: Fetch the data the registry macro reads
+      # Only the JSON and XML are needed, not the audio and images, so this
+      # takes those two paths out of the assets fork rather than the whole
+      # 2.5GB of it.
+      - name: Fetch the data the compile-time macros read
         if: steps.probe.outputs.ok != 'true'
         run: |
           git clone --filter=blob:none --sparse --depth 1 \
             https://github.com/Lennelis/funkin.assets "$RUNNER_TEMP/assets-src"
-          git -C "$RUNNER_TEMP/assets-src" sparse-checkout set preload/data
-          mkdir -p assets/preload
+          git -C "$RUNNER_TEMP/assets-src" sparse-checkout set preload/data exclude/data
+          mkdir -p assets/preload assets/exclude
           cp -r "$RUNNER_TEMP/assets-src/preload/data" assets/preload/
+          cp -r "$RUNNER_TEMP/assets-src/exclude/data" assets/exclude/
           echo "$(find assets/preload/data -name '*.json' | wc -l) data files"
+          echo "$(find assets/exclude/data -name '*.xml' | wc -l) layouts"
 
       - name: Work out the build
         if: steps.probe.outputs.ok != 'true'
