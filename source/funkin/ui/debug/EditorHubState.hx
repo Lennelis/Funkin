@@ -22,6 +22,22 @@ import funkin.ui.TextMenuList;
  */
 class EditorHubState extends MusicBeatState
 {
+  /**
+   * Where an editor goes when it is done.
+   *
+   * In the editor app the editors are the whole game, so leaving one comes
+   * back to the list of them. A main menu is only behind them in a build
+   * where the game is the point and the editors are the detour.
+   */
+  public static function leaveEditor():Void
+  {
+    #if EDITOR_APP
+    FlxG.switchState(() -> new EditorHubState());
+    #else
+    FlxG.switchState(() -> new funkin.ui.mainmenu.MainMenuState());
+    #end
+  }
+
   var items:TextMenuList;
 
   /**
@@ -69,12 +85,20 @@ class EditorHubState extends MusicBeatState
     createItem("PLAY A SONG", openFreeplay);
 
     #if mobile
-    // Not decoration. MenuList tests a tap against the second camera, and
-    // that camera only exists once one of the mobile controls has been added,
-    // so without this nothing on this screen answers a touch at all.
+    // No back button: this screen is the root, and the one that used to be
+    // here led out of the editors into the game, which reads as the app
+    // turning into something else.
     //
-    // Back leaves the editors for the game, which is still in this build.
-    addBackButton(FlxG.width - 230, FlxG.height - 200, FlxColor.WHITE, goBack, 1.0);
+    // The camera it used to bring with it is still needed, though. MenuList
+    // tests a tap against the second camera, and that camera only exists
+    // once a mobile control has made one, so without it nothing on this
+    // screen answers a touch at all.
+    if (camControls == null)
+    {
+      camControls = new funkin.graphics.FunkinCamera('camControls');
+      camControls.bgColor = 0x0;
+      FlxG.cameras.add(camControls, false);
+    }
     #end
 
     layOutItems();
@@ -90,6 +114,15 @@ class EditorHubState extends MusicBeatState
     // elsewhere makes the editors' own components come up wrong.
     haxe.ui.Toolkit.styleSheet.clear("user");
     #end
+
+    // The loop the editors themselves play, so that opening one carries on
+    // from here rather than starting over.
+    FunkinSound.playMusic('chartEditorLoop',
+      {
+        overrideExisting: true,
+        restartTrack: false,
+        persist: true
+      });
   }
 
   /**
@@ -196,13 +229,6 @@ class EditorHubState extends MusicBeatState
   function switchToCharacterEditor():Void
   {
     FlxG.switchState(() -> new funkin.ui.debug.charedit.CharacterEditorState());
-  }
-  #end
-
-  #if mobile
-  function goBack():Void
-  {
-    FlxG.switchState(() -> new funkin.ui.title.TitleState());
   }
   #end
 

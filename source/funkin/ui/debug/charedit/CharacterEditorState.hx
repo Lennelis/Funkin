@@ -3299,7 +3299,7 @@ class CharacterEditorState extends MusicBeatState
 
   function goBack():Void
   {
-    FlxG.switchState(() -> new funkin.ui.debug.EditorHubState());
+    funkin.ui.debug.EditorHubState.leaveEditor();
   }
 }
 
