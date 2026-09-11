@@ -112,10 +112,10 @@ jobs:
       - name: Try lime without its native tooling
         id: probe
         run: |
-          if haxelib run lime display android > build.hxml 2> probe.log; then
+          if haxelib run lime display android > probe.hxml 2> probe.log; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
             echo "lime display works with no native tooling"
-            head -20 build.hxml
+            head -20 probe.hxml
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
             echo "--- why not ---"
@@ -213,7 +213,6 @@ jobs:
       # Building an actual APK would need the real assets. This is only enough
       # to let Haxe look at the source.
       - name: Stand in for the asset submodule
-        if: steps.probe.outputs.ok != 'true'
         run: |
           grep -o 'assets/[A-Za-z0-9_./-]*' project.hxp | sort -u | while read -r path; do
             case "$path" in
@@ -243,7 +242,6 @@ jobs:
       # takes those two paths out of the assets fork rather than the whole
       # 2.5GB of it.
       - name: Fetch the data the compile-time macros read
-        if: steps.probe.outputs.ok != 'true'
         run: |
           git clone --filter=blob:none --sparse --depth 1 \
             https://github.com/Lennelis/funkin.assets "$RUNNER_TEMP/assets-src"
@@ -263,7 +261,6 @@ jobs:
       # them, which is how a character editor that does not compile has been
       # passing this check.
       - name: Work out the builds
-        if: steps.probe.outputs.ok != 'true'
         run: |
           haxelib run lime display android > build-game.hxml
           haxelib run lime display android -DEDITOR_APP > build-editor.hxml
