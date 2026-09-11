@@ -307,6 +307,15 @@ class CharacterEditorState extends MusicBeatState
   var playtestWindows:Array<String> = [];
 
   /**
+   * The cameras the editor was using when the playtest started.
+   *
+   * A song resets the camera list on its way in, which destroys every camera
+   * that was already there, so the editor's are taken out of the list first
+   * and put back afterwards.
+   */
+  var playtestCameras:Array<flixel.FlxCamera> = [];
+
+  /**
    * Which animation the copy dropdown is pointing at.
    *
    * Kept here rather than read back off the control, which is the shape the
@@ -330,7 +339,7 @@ class CharacterEditorState extends MusicBeatState
    * to be between. This is the other one: it stays put while the character
    * moves, so what you are dragging is the gap.
    */
-  var ghost:Null<FlxSprite> = null;
+  var ghost:Null<BaseCharacter> = null;
   var statusLabel:Null<Label> = null;
 
   /**
@@ -769,7 +778,15 @@ class CharacterEditorState extends MusicBeatState
 
     field.onChange = function(_) {
       if (populating || data == null) return;
-      write(field.text ?? '');
+
+      // The toolkit does not always deliver a change while the value is
+      // being put back, so a write that matches what is already there is
+      // taken as the refresh it is. Rebuilding an animation because it was
+      // merely redisplayed costs the one that is playing.
+      var value:String = field.text ?? '';
+      if (value == read()) return;
+
+      write(value);
     };
   }
 
@@ -1306,6 +1323,20 @@ class CharacterEditorState extends MusicBeatState
     persistentUpdate = false;
     persistentDraw = false;
 
+    // A song resets the camera list, and resetting it destroys whatever was
+    // in it -- so the editor's cameras come out of the list, rather than
+    // being handed over to be thrown away.
+    playtestCameras = [for (cam in FlxG.cameras.list) cam];
+
+    for (cam in playtestCameras)
+      FlxG.cameras.remove(cam, false);
+
+    // Something to be looking through in the meantime: an empty list leaves
+    // the game with no camera at all, which is not a state anything between
+    // here and the song's own cameras expects to be asked about. This one is
+    // the song's to destroy when it resets the list itself.
+    FlxG.cameras.reset(new FunkinCamera('charEditorPlaytest'));
+
     PlayStatePlaylist.reset();
 
     subStateClosed.add(afterPlaytest);
@@ -1341,6 +1372,24 @@ class CharacterEditorState extends MusicBeatState
 
     // The song pointed the asset paths at its own level on the way in.
     Paths.setCurrentLevel(null);
+
+    // The editor's cameras go back, in the order they were in, in place of
+    // the song's -- which resetting the list destroys, as it did to these on
+    // the way in. This has to come before anything that draws or is placed,
+    // since all of that names a camera.
+    if (playtestCameras.length > 0)
+    {
+      FlxG.cameras.reset(playtestCameras[0]);
+      playtestCameras[0].onResize();
+
+      for (i in 1...playtestCameras.length)
+      {
+        FlxG.cameras.add(playtestCameras[i], false);
+        playtestCameras[i].onResize();
+      }
+
+      playtestCameras = [];
+    }
 
     persistentUpdate = true;
     persistentDraw = true;
@@ -1568,6 +1617,23 @@ class CharacterEditorState extends MusicBeatState
   // -- adding, renaming and removing animations ---------------------------
 
   /**
+   * Take an animation off the character.
+   *
+   * Removing an animation destroys it, and the controller goes on pointing
+   * at whatever it was playing -- so removing the one that is playing leaves
+   * it holding a destroyed animation, which is a crash on the next frame
+   * rather than an error here. Standing it down first is what avoids that.
+   */
+  function dropAnimation(name:String):Void
+  {
+    if (character == null) return;
+
+    if (character.animation.curAnim != null && character.animation.curAnim.name == name) character.animation.curAnim = null;
+
+    character.animation.remove(name);
+  }
+
+  /**
    * Build one animation again from what the file now says.
    *
    * The sprite turns the file's animations into frames once, when it is
@@ -1582,8 +1648,22 @@ class CharacterEditorState extends MusicBeatState
 
     var offsets = character.animationOffsets.get(entry.name);
 
-    character.animation.remove(entry.name);
-    FlxAnimationUtil.addAtlasAnimation(character, entry);
+    if (character.isAnimate)
+    {
+      // An Animate atlas character's animations are cut out of the atlas's
+      // own frame labels rather than out of a sheet, and the two are not
+      // interchangeable: handing one a sheet animation adds nothing at all.
+      // Adding over the name is how this one is replaced, so the old one is
+      // not taken off first.
+      FlxAnimationUtil.addTextureAtlasAnimation(character, entry);
+    }
+    else
+    {
+      // Taking the old one off first, because adding over a name that is
+      // already there does not replace it.
+      dropAnimation(entry.name);
+      FlxAnimationUtil.addAtlasAnimation(character, entry);
+    }
 
     // Rebuilding loses the offsets, which live on the sprite rather than in
     // the animation, so they go back on afterwards.
@@ -1648,7 +1728,7 @@ class CharacterEditorState extends MusicBeatState
     offsetHistory = offsetHistory.filter(edit -> edit.animation != going);
     if (character != null)
     {
-      character.animation.remove(going);
+      dropAnimation(going);
       character.animationOffsets.remove(going);
     }
 
@@ -1702,7 +1782,7 @@ class CharacterEditorState extends MusicBeatState
 
     if (character != null)
     {
-      character.animation.remove(from);
+      dropAnimation(from);
       character.animationOffsets.remove(from);
 
       FlxAnimationUtil.addAtlasAnimation(character, entry);
@@ -1991,33 +2071,45 @@ class CharacterEditorState extends MusicBeatState
 
     if (!on || character == null) return;
 
-    var copy = new FlxSprite();
-    copy.loadGraphicFromSprite(character);
-    copy.scale.copyFrom(character.scale);
-    copy.updateHitbox();
+    // A character of its own rather than a sprite wearing the same graphic:
+    // an Animate atlas character is drawn from a timeline that only its own
+    // class knows how to play, and a plain sprite handed those frames shows
+    // whatever happens to be first in the file.
+    var copy:Null<BaseCharacter> = CharacterDataParser.fetchCharacter(characterId, true);
+
+    if (copy == null)
+    {
+      say('Could not make a ghost of $characterId.');
+      return;
+    }
+
     copy.flipX = character.flipX;
-    copy.antialiasing = character.antialiasing;
     copy.alpha = 0.4;
     copy.cameras = [camStage];
 
     if (animationName != '')
     {
+      copy.playAnimation(animationName, true);
+
       // The end of the animation rather than the start of it: where a
       // character finishes is what has to line up, and the first frame of a
       // sing is usually the idle it grew out of.
-      copy.animation.play(animationName, true);
-
-      if (copy.animation.curAnim != null)
-      {
-        copy.animation.curAnim.curFrame = copy.animation.curAnim.numFrames - 1;
-      }
-
+      copy.animation.finish();
       copy.animation.pause();
     }
+
+    // Drawn exactly where it is put. A character moves itself by its offsets
+    // as it draws, and where it is being put is that sum already.
+    copy.animOffsets = [0, 0];
+    copy.globalOffsets = [0, 0];
+    if (animationName != '') copy.setAnimationOffsets(animationName, 0, 0);
 
     var corner = drawnCorner();
     copy.setPosition(corner.x, corner.y);
     corner.put();
+
+    // Frozen on the frame it was left on: nothing here should carry it on.
+    copy.active = false;
 
     // Over the character rather than under it: at this alpha the one you are
     // dragging still reads as the solid one, and a ghost hidden behind the
