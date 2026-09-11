@@ -20,6 +20,7 @@ import funkin.ui.FullScreenScaleMode;
 import funkin.ui.MusicBeatState;
 import funkin.util.FileUtil;
 import funkin.util.FileUtil.SelectedFileData;
+import funkin.util.assets.FlxAnimationUtil;
 import funkin.util.SortUtil;
 import haxe.ui.RuntimeComponentBuilder;
 import haxe.ui.components.Button;
@@ -254,6 +255,7 @@ class CharacterEditorState extends MusicBeatState
   var animationDropdown:Null<DropDown> = null;
   var animationWarning:Null<Label> = null;
   var offsetLabel:Null<Label> = null;
+  var animationNameField:Null<TextField> = null;
   var animOffsetX:Null<NumberStepper> = null;
   var animOffsetY:Null<NumberStepper> = null;
 
@@ -926,12 +928,33 @@ class CharacterEditorState extends MusicBeatState
     bindStepper(dialog, 'animOffsetXStepper', () -> currentOffset()[0], function(value) setOffset(value, currentOffset()[1]));
     bindStepper(dialog, 'animOffsetYStepper', () -> currentOffset()[1], function(value) setOffset(currentOffset()[0], value));
 
+    animationNameField = dialog.findComponent('nameField', TextField);
+    if (animationNameField != null)
+    {
+      var field = animationNameField;
+      refreshers.push(function() field.text = animationName);
+    }
+
     bindField(dialog, 'prefixField', () -> currentAnimation()?.prefix ?? '', function(value) {
       var animation = currentAnimation();
       if (animation == null) return;
 
       animation.prefix = value;
-      say('The prefix takes effect on reload.');
+      rebuildAnimation(animation);
+    });
+
+    bindField(dialog, 'frameIndicesField', () -> describeIndices(currentAnimation()?.frameIndices), function(value) {
+      var animation = currentAnimation();
+      if (animation == null) return;
+
+      animation.frameIndices = readIndices(value);
+      rebuildAnimation(animation);
+    });
+
+    bindButton(dialog, 'addAnimationButton', addAnimation);
+    bindButton(dialog, 'deleteAnimationButton', deleteAnimation);
+    bindButton(dialog, 'renameButton', function() {
+      if (animationNameField != null) renameAnimation(animationNameField.text ?? '');
     });
 
     bindStepper(dialog, 'frameRateStepper', () -> currentAnimation()?.frameRate ?? 24, function(value) {
@@ -1181,18 +1204,190 @@ class CharacterEditorState extends MusicBeatState
     animationName = name;
     character.playAnimation(name, true);
 
-    // An animation whose prefix is not in the sprite sheet plays nothing, and
-    // that is the most common thing wrong with a character file, so say so
-    // rather than leaving it to be discovered.
-    if (animationWarning != null)
-    {
-      var missing = !character.hasAnimation(name);
-      animationWarning.text = missing ? 'No frames for this prefix' : '';
-    }
+    refreshAnimationWarning();
 
     // The animation window is showing one animation's worth of the file, and
     // which animation that is has just changed.
     refreshWindows();
+  }
+
+  // -- adding, renaming and removing animations ---------------------------
+
+  /**
+   * Build one animation again from what the file now says.
+   *
+   * The sprite turns the file's animations into frames once, when it is
+   * made, so a prefix or a list of frames changed afterwards means nothing
+   * until the animation is put together again. Taking the old one off first
+   * because adding over the top of a name that is already there does not
+   * replace it.
+   */
+  function rebuildAnimation(entry:AnimationData):Void
+  {
+    if (character == null) return;
+
+    var offsets = character.animationOffsets.get(entry.name);
+
+    character.animation.remove(entry.name);
+    FlxAnimationUtil.addAtlasAnimation(character, entry);
+
+    // Rebuilding loses the offsets, which live on the sprite rather than in
+    // the animation, so they go back on afterwards.
+    if (offsets != null) character.setAnimationOffsets(entry.name, offsets[0], offsets[1]);
+
+    if (entry.name == animationName && character != null)
+    {
+      character.playAnimation(entry.name, true);
+      refreshAnimationWarning();
+    }
+  }
+
+  /**
+   * Add an animation the sheet has frames for but the file does not mention.
+   *
+   * The guess made when a character is built from a sheet will not always
+   * find everything, and a character missing `singRIGHT` is a character that
+   * does not work in a song, so there has to be a way to add one by hand.
+   */
+  function addAnimation():Void
+  {
+    if (data == null) return;
+
+    var name:String = unusedAnimationName('newAnimation');
+
+    var entry:AnimationData =
+      {
+        name: name,
+        prefix: '',
+        offsets: [0.0, 0.0],
+        looped: false,
+        flipX: false,
+        flipY: false,
+        frameRate: 24,
+        frameIndices: []
+      };
+
+    data.animations.push(entry);
+    animationNames.push(name);
+    animationName = name;
+
+    if (character != null) character.setAnimationOffsets(name, 0, 0);
+
+    fillAnimationDropdown();
+    selectInDropdown(animationDropdown, animationNames.indexOf(name));
+    refreshWindows();
+
+    say('Added $name. Give it a prefix from the sheet.');
+  }
+
+  function deleteAnimation():Void
+  {
+    if (data == null || animationName == '') return;
+
+    var entry = currentAnimation();
+    if (entry == null) return;
+
+    var going:String = entry.name;
+
+    data.animations.remove(entry);
+    animationNames.remove(going);
+    if (character != null)
+    {
+      character.animation.remove(going);
+      character.animationOffsets.remove(going);
+    }
+
+    animationName = animationNames.length > 0 ? animationNames[0] : '';
+
+    fillAnimationDropdown();
+
+    if (animationName != '')
+    {
+      selectInDropdown(animationDropdown, 0);
+      playAnimation(animationName);
+    }
+
+    refreshWindows();
+
+    say('Removed $going.');
+  }
+
+  /**
+   * Give an animation a different name.
+   *
+   * The name is what the game asks for — `idle`, `singLEFT` — so getting it
+   * right is the difference between a character that works and one that
+   * stands still. It is also the key the offsets are filed under, in two
+   * places, both of which have to move with it.
+   */
+  function renameAnimation(to:String):Void
+  {
+    if (data == null) return;
+
+    var entry = currentAnimation();
+    if (entry == null || to == '' || to == entry.name) return;
+
+    if (animationNames.indexOf(to) != -1)
+    {
+      say('There is already an animation called $to.');
+      return;
+    }
+
+    var from:String = entry.name;
+    var offsets = character == null ? null : character.animationOffsets.get(from);
+
+    entry.name = to;
+    animationNames[animationNames.indexOf(from)] = to;
+    animationName = to;
+
+    if (character != null)
+    {
+      character.animation.remove(from);
+      character.animationOffsets.remove(from);
+
+      FlxAnimationUtil.addAtlasAnimation(character, entry);
+      if (offsets != null) character.setAnimationOffsets(to, offsets[0], offsets[1]);
+    }
+
+    fillAnimationDropdown();
+    selectInDropdown(animationDropdown, animationNames.indexOf(to));
+    playAnimation(to);
+
+    say('Renamed $from to $to.');
+  }
+
+  function unusedAnimationName(wanted:String):String
+  {
+    if (animationNames.indexOf(wanted) == -1) return wanted;
+
+    var attempt:Int = 2;
+    while (animationNames.indexOf('$wanted$attempt') != -1)
+      attempt++;
+
+    return '$wanted$attempt';
+  }
+
+  /**
+   * The frames an animation uses, as something a person can type.
+   */
+  static function describeIndices(indices:Null<Array<Int>>):String
+  {
+    if (indices == null || indices.length == 0) return '';
+
+    return indices.join(', ');
+  }
+
+  static function readIndices(value:String):Array<Int>
+  {
+    var indices:Array<Int> = [];
+
+    for (piece in value.split(','))
+    {
+      var number = Std.parseInt(StringTools.trim(piece));
+      if (number != null) indices.push(number);
+    }
+
+    return indices;
   }
 
   /**
@@ -1218,6 +1413,18 @@ class CharacterEditorState extends MusicBeatState
     playing.looped = settings.looped ?? false;
     playing.flipX = settings.flipX ?? false;
     playing.flipY = settings.flipY ?? false;
+  }
+
+  /**
+   * An animation whose prefix is not in the sprite sheet plays nothing, and
+   * that is the most common thing wrong with a character file, so say so
+   * rather than leaving it to be discovered.
+   */
+  function refreshAnimationWarning():Void
+  {
+    if (animationWarning == null || character == null) return;
+
+    animationWarning.text = character.hasAnimation(animationName) ? '' : 'No frames for this prefix';
   }
 
   function resetOffset():Void

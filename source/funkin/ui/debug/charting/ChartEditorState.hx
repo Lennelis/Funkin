@@ -3308,6 +3308,8 @@ class ChartEditorState extends UIState // UIState derives from MusicBeatState
     {
       // CTRL + SHIFT + S Cancelled
     });
+    menubarItemExportPsych.onClick = _ -> exportForPsych();
+    menubarItemExportCodename.onClick = _ -> exportForCodename();
     menubarItemExit.onClick = _ -> quitChartEditor(true);
 
     // Edit
@@ -6152,6 +6154,48 @@ class ChartEditorState extends UIState // UIState derives from MusicBeatState
   }
 
   @:nullSafety(Off)
+  /**
+   * Write the current difficulty out in Psych Engine's format.
+   *
+   * The game has been able to read the older engines' charts in for a long
+   * time; this is the way back out. One file, since Psych keeps a song in
+   * one.
+   */
+  function exportForPsych():Void
+  {
+    var json:String = funkin.data.song.exporter.FNFLegacyExporter.exportPsych(currentSongMetadata, currentSongChartData, selectedDifficulty);
+
+    var name:String = '$currentSongId-$selectedDifficulty.json';
+
+    FileUtil.saveFile('Export for Psych Engine', lime.utils.Bytes.fromBytes(haxe.io.Bytes.ofString(json)), [FileUtil.FILE_FILTER_JSON],
+      function(path:String) {
+        this.success('Exported Chart', 'Exported for Psych Engine to $path.');
+      }, function() {}, name);
+  }
+
+  /**
+   * Write the current difficulty out in Codename Engine's format.
+   *
+   * Codename splits a song between a chart and a `meta.json` that sits
+   * beside it, so this is a zip rather than a file: two save dialogs in a row
+   * is a worse way to be handed two halves of one thing.
+   */
+  function exportForCodename():Void
+  {
+    var chart:String = funkin.data.song.exporter.FNFLegacyExporter.exportCodenameChart(currentSongMetadata, currentSongChartData,
+      selectedDifficulty);
+    var meta:String = funkin.data.song.exporter.FNFLegacyExporter.exportCodenameMeta(currentSongMetadata);
+
+    var entries:Array<haxe.zip.Entry> = [
+      FileUtil.makeZIPEntry('$currentSongId/charts/$selectedDifficulty.json', chart),
+      FileUtil.makeZIPEntry('$currentSongId/meta.json', meta)
+    ];
+
+    FileUtil.saveFilesAsZIP(entries, function(paths:Array<String>) {
+      this.success('Exported Chart', 'Exported for Codename Engine.');
+    }, function() {}, '$currentSongId-codename.zip');
+  }
+
   function quitChartEditor(exitPrompt:Bool = false):Void
   {
     if (saveDataDirty && exitPrompt)
