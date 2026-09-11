@@ -527,6 +527,7 @@ class CharacterEditorState extends MusicBeatState
     wireMenuItem('menuExport', exportCharacter);
     wireMenuItem('menuReload', () -> loadCharacter(characterId, true));
     wireMenuItem('menuPlaytest', () -> showWindow('windowPlaytest', true));
+    wireMenuItem('menuLoadMods', () -> later(loadMods));
     wireMenuItem('menuExit', () -> later(goBack));
     wireMenuItem('menuUndoOffset', undoOffset);
     wireMenuItem('menuResetOffset', resetOffset);
@@ -1177,6 +1178,54 @@ class CharacterEditorState extends MusicBeatState
   }
 
   // -- the character ------------------------------------------------------
+
+  // -- reading someone else's mods ----------------------------------------
+
+  /**
+   * Bring in the characters from mods kept somewhere else on the device.
+   *
+   * The game's own mods folder is the point of this: on a recent Android an
+   * app cannot read another's storage by path, but the game publishes that
+   * folder through a document provider, so the system folder picker can
+   * reach it and the copy goes through the provider as well.
+   */
+  function loadMods():Void
+  {
+    say('Choose the folder your mods are in...');
+
+    FileUtil.browseForDirectory('Choose a mods folder', function(folder:String) {
+      later(() -> readMods(folder));
+    }, function() {
+      say('Nothing loaded.');
+    });
+  }
+
+  function readMods(folder:String):Void
+  {
+    #if sys
+    say('Reading that folder...');
+
+    var brought = ModImport.importFrom(folder, MOD_ROOT);
+
+    if (brought.mods.length == 0)
+    {
+      say(brought.trouble.length > 0 ? brought.trouble[0] : 'Nothing to bring in from there.');
+      return;
+    }
+
+    var trouble:String = brought.trouble.length > 0 ? ' (${brought.trouble.length} could not be read)' : '';
+
+    say('Loading ${brought.characters} characters from ${brought.mods.join(', ')}$trouble...');
+
+    // Come back to the character that is up now, since reloading the assets
+    // rebuilds this state from nothing.
+    pendingCharacterId = characterId;
+
+    later(reloadAssets);
+    #else
+    say('Reading mods needs a filesystem.');
+    #end
+  }
 
   // -- playtesting --------------------------------------------------------
 
