@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Builds the editor app's Android icon resources from editor-art/icon.png.
+"""Builds the editor app's Android icon resources from the artwork here.
 
 `DataFolderProvider` asks for `R.mipmap.ic_launcher`, so the app has to ship
 a real mipmap set rather than the `drawable/icon` lime generates from a lone
-image. Run this after changing icon.png; the output is committed.
+image. Run this after changing the artwork; the output is committed.
 
 Requires Pillow.
 """
 
 import os
-from collections import deque
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(HERE, 'icon.png')
+FOREGROUND = os.path.join(HERE, 'icon-foreground.png')
+BACKGROUND = os.path.join(HERE, 'icon-background.png')
 OUT = os.path.join(HERE, 'android-res')
 
 # Launcher icons are 48dp; an adaptive icon's layers are a 108dp canvas whose
@@ -32,74 +32,6 @@ ADAPTIVE_XML = '''<?xml version="1.0" encoding="utf-8"?>
 '''
 
 
-def repeat(image, kernel, times):
-    for _ in range(times):
-        image = image.filter(kernel)
-    return image
-
-
-def largest_blobs(mask, size=600, floor=0.01):
-    """The mask's big connected regions, without the flecks of line art."""
-    small = mask.resize((size, size), Image.BILINEAR).point(lambda v: 1 if v > 127 else 0)
-    pixels = small.tobytes()
-    seen = bytearray(size * size)
-    blobs = []
-
-    for start in range(size * size):
-        if not pixels[start] or seen[start]:
-            continue
-        queue = deque([start])
-        seen[start] = 1
-        cells = []
-        while queue:
-            cell = queue.popleft()
-            cells.append(cell)
-            y, x = divmod(cell, size)
-            for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
-                if 0 <= ny < size and 0 <= nx < size:
-                    n = ny * size + nx
-                    if pixels[n] and not seen[n]:
-                        seen[n] = 1
-                        queue.append(n)
-        blobs.append(cells)
-
-    kept = Image.new('L', (size, size), 0)
-    paint = kept.load()
-    for cells in blobs:
-        if len(cells) >= floor * size * size:
-            for cell in cells:
-                y, x = divmod(cell, size)
-                paint[x, y] = 255
-    return kept
-
-
-def emblem_of(source):
-    """The gear and wrench, lifted off the gradient and its faint line art."""
-    width = source.size[0]
-    dark = source.convert('L').point(lambda v: 255 if v < 140 else 0).convert('L')
-    # Opening drops the thin strokes drawn behind the emblem; keeping only the
-    # large blobs drops the thick ones.
-    opened = repeat(repeat(dark, ImageFilter.MinFilter(9), 5), ImageFilter.MaxFilter(9), 5)
-    solid = largest_blobs(opened).resize((width, width), Image.BILINEAR)
-    solid = solid.point(lambda v: 255 if v > 127 else 0).convert('L')
-    # Grow past the dark shape to pick up the white edging drawn around it.
-    alpha = repeat(solid, ImageFilter.MaxFilter(9), 7).filter(ImageFilter.GaussianBlur(2))
-
-    art = source.copy()
-    art.putalpha(alpha)
-    return art.crop(alpha.getbbox())
-
-
-def gradient_of(source):
-    """The backdrop's diagonal gradient, read off its four corners."""
-    width = source.size[0]
-    corners = Image.new('RGB', (2, 2))
-    for at, pixel in (((0, 0), (0, 0)), ((1, 0), (width - 1, 0)),
-                      ((0, 1), (0, width - 1)), ((1, 1), (width - 1, width - 1))):
-        corners.putpixel(at, source.getpixel(pixel)[:3])
-    return corners
-
-
 def rounded(image):
     mask = Image.new('L', image.size, 0)
     ImageDraw.Draw(mask).ellipse([0, 0, image.size[0] - 1, image.size[1] - 1], fill=255)
@@ -115,18 +47,27 @@ def save(image, *parts):
 
 
 def main():
-    source = Image.open(SRC).convert('RGBA')
-    emblem = emblem_of(source)
-    gradient = gradient_of(source)
+    foreground = Image.open(FOREGROUND).convert('RGBA')
+    background = Image.open(BACKGROUND).convert('RGBA')
+
+    # The emblem is drawn out to the edges of its own canvas, which is wider
+    # than the part of a layer a mask is guaranteed to keep, so it is trimmed
+    # to what it actually covers and put back inside the safe middle.
+    emblem = foreground.crop(foreground.split()[3].getbbox())
+
+    # The whole icon, for the densities that predate adaptive icons and for
+    # anywhere else one flat image is what is wanted.
+    flat = background.copy()
+    flat.alpha_composite(foreground)
 
     for name, scale in DENSITIES:
         size = int(round(ICON_DP * scale))
-        legacy = source.resize((size, size), Image.LANCZOS)
+        legacy = flat.resize((size, size), Image.LANCZOS)
         save(legacy, f'mipmap-{name}', 'ic_launcher.png')
         save(rounded(legacy), f'mipmap-{name}', 'ic_launcher_round.png')
 
         layer = int(round(LAYER_DP * scale))
-        save(gradient.resize((layer, layer), Image.BICUBIC).convert('RGBA'),
+        save(background.resize((layer, layer), Image.LANCZOS),
              f'drawable-{name}', 'ic_launcher_background.png')
 
         fitted = emblem.copy()
