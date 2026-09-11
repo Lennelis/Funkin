@@ -35,6 +35,7 @@ import haxe.ui.containers.dialogs.Dialog.DialogEvent;
 import haxe.ui.containers.menus.MenuBar;
 import haxe.ui.containers.menus.MenuCheckBox;
 import haxe.ui.containers.menus.MenuItem;
+import haxe.ui.containers.menus.MenuOptionBox;
 import haxe.ui.core.Component;
 import haxe.ui.core.Screen;
 import haxe.ui.events.MouseEvent;
@@ -232,6 +233,11 @@ class CharacterEditorState extends MusicBeatState
   var windowToggles:Map<String, MenuCheckBox> = new Map<String, MenuCheckBox>();
 
   /**
+   * The View rows naming the stage slots, so the one in use stays marked.
+   */
+  var positionRows:Map<CharacterType, MenuOptionBox> = new Map<CharacterType, MenuOptionBox>();
+
+  /**
    * Everything that puts a value from the character file onto a control.
    *
    * One per control, added as the control is bound, so that loading a
@@ -309,7 +315,19 @@ class CharacterEditorState extends MusicBeatState
    */
   var dragAnchor:FlxPoint = new FlxPoint();
 
+  /**
+   * Whether a finger that went down somewhere other than on the character is
+   * pulling the view along behind it.
+   */
+  var panning:Bool = false;
+
   var pinching:Bool = false;
+
+  /**
+   * Where the panning finger was last seen, so a pan is a series of small
+   * moves rather than a jump to wherever it started.
+   */
+  var lastPan:FlxPoint = new FlxPoint();
 
   var lastMid:FlxPoint = new FlxPoint();
 
@@ -432,10 +450,25 @@ class CharacterEditorState extends MusicBeatState
     wireMenuItem('menuResetOffset', resetOffset);
     wireMenuItem('menuReplay', replayAnimation);
     wireMenuItem('menuResetCamera', lookAtCharacter);
-    wireMenuItem('menuToggleStage', toggleStage);
-    wireMenuItem('menuPositionBf', () -> standAt(BF));
-    wireMenuItem('menuPositionDad', () -> standAt(DAD));
-    wireMenuItem('menuPositionGf', () -> standAt(GF));
+    wirePosition('menuPositionBf', BF);
+    wirePosition('menuPositionDad', DAD);
+    wirePosition('menuPositionGf', GF);
+  }
+
+  /**
+   * Tie one of the View rows to the slot it names.
+   */
+  function wirePosition(id:String, slot:CharacterType):Void
+  {
+    if (menubar == null) return;
+
+    var row = menubar.findComponent(id, MenuOptionBox);
+    if (row == null) return;
+
+    positionRows.set(slot, row);
+    row.registerEvent(UIEvent.CHANGE, function(_) {
+      if (row.selected) standAt(slot);
+    });
   }
 
   /**
@@ -446,6 +479,9 @@ class CharacterEditorState extends MusicBeatState
     if (slot == characterType) return;
 
     characterType = slot;
+
+    var row = positionRows.get(slot);
+    if (row != null && !row.selected) row.selected = true;
 
     // The same character, but standing somewhere else, so this one is worth
     // doing again.
@@ -901,21 +937,25 @@ class CharacterEditorState extends MusicBeatState
     bindStepper(dialog, 'frameRateStepper', () -> currentAnimation()?.frameRate ?? 24, function(value) {
       var animation = currentAnimation();
       if (animation != null) animation.frameRate = Std.int(value);
+      applyAnimationSettings();
     });
 
     bindCheck(dialog, 'loopedCheck', () -> currentAnimation()?.looped ?? false, function(value) {
       var animation = currentAnimation();
       if (animation != null) animation.looped = value;
+      applyAnimationSettings();
     });
 
     bindCheck(dialog, 'animFlipXCheck', () -> currentAnimation()?.flipX ?? false, function(value) {
       var animation = currentAnimation();
       if (animation != null) animation.flipX = value;
+      applyAnimationSettings();
     });
 
     bindCheck(dialog, 'animFlipYCheck', () -> currentAnimation()?.flipY ?? false, function(value) {
       var animation = currentAnimation();
       if (animation != null) animation.flipY = value;
+      applyAnimationSettings();
     });
 
     bindButton(dialog, 'resetOffsetButton', resetOffset);
@@ -1155,6 +1195,31 @@ class CharacterEditorState extends MusicBeatState
     refreshWindows();
   }
 
+  /**
+   * Push the current animation's settings onto the one that is playing.
+   *
+   * The sprite reads these once, when its animations are built out of the
+   * file, so changing the frame rate afterwards changed a number nothing was
+   * looking at any more and the animation carried on at whatever speed it
+   * started at. These are the four that can be changed without rebuilding
+   * the animation from its frames.
+   */
+  function applyAnimationSettings():Void
+  {
+    if (character == null || animationName == '') return;
+
+    var settings = currentAnimation();
+    if (settings == null) return;
+
+    var playing = character.animation.getByName(animationName);
+    if (playing == null) return;
+
+    playing.frameRate = settings.frameRate ?? 24;
+    playing.looped = settings.looped ?? false;
+    playing.flipX = settings.flipX ?? false;
+    playing.flipY = settings.flipY ?? false;
+  }
+
   function resetOffset():Void
   {
     setOffset(0, 0);
@@ -1255,15 +1320,22 @@ class CharacterEditorState extends MusicBeatState
 
     if (animationName != '')
     {
+      // The end of the animation rather than the start of it: where a
+      // character finishes is what has to line up, and the first frame of a
+      // sing is usually the idle it grew out of.
       copy.animation.play(animationName, true);
+
+      if (copy.animation.curAnim != null)
+      {
+        copy.animation.curAnim.curFrame = copy.animation.curAnim.numFrames - 1;
+      }
+
       copy.animation.pause();
     }
 
-    var offset = currentOffset();
-    var global = character.globalOffsets;
-
-    copy.setPosition(character.x - (offset[0] - global[0]) * character.scale.x,
-      character.y - (offset[1] - global[1]) * character.scale.y);
+    var corner = drawnCorner();
+    copy.setPosition(corner.x, corner.y);
+    corner.put();
 
     // Over the character rather than under it: at this alpha the one you are
     // dragging still reads as the solid one, and a ghost hidden behind the
@@ -1278,12 +1350,6 @@ class CharacterEditorState extends MusicBeatState
     if (statusText != null) statusText.text = message;
   }
 
-  function toggleStage():Void
-  {
-    if (stage != null) stage.visible = !stage.visible;
-    refreshBackdrop();
-  }
-
   /**
    * Show the green only when there is no stage to stand on.
    *
@@ -1295,7 +1361,7 @@ class CharacterEditorState extends MusicBeatState
   {
     if (bg == null) return;
 
-    bg.visible = stage == null || !stage.visible;
+    bg.visible = stage == null;
   }
 
   /**
@@ -1755,6 +1821,45 @@ class CharacterEditorState extends MusicBeatState
     return Screen.instance.hasSolidComponentUnderPoint(x, y);
   }
 
+  /**
+   * The top-left of the character as drawn, in the world.
+   *
+   * Not the same as where the character *is*: the offsets are applied at
+   * draw time rather than to its position, so the sum has to be done by hand
+   * anywhere the drawn shape matters.
+   */
+  function drawnCorner():FlxPoint
+  {
+    var corner = FlxPoint.get();
+
+    if (character == null) return corner;
+
+    var offset = currentOffset();
+    var global = character.globalOffsets;
+
+    corner.set(character.x - (offset[0] - global[0]) * character.scale.x,
+      character.y - (offset[1] - global[1]) * character.scale.y);
+
+    return corner;
+  }
+
+  /**
+   * Whether a point in the world is on the character as it is drawn.
+   *
+   * What decides whether a finger going down is going to move the character
+   * or the view: on it moves the character, anywhere else moves the view.
+   */
+  function overCharacter(x:Float, y:Float):Bool
+  {
+    if (character == null) return false;
+
+    var corner = drawnCorner();
+    var on = x >= corner.x && x <= corner.x + character.width && y >= corner.y && y <= corner.y + character.height;
+    corner.put();
+
+    return on;
+  }
+
   #if mobile
   function updateGestures():Void
   {
@@ -1765,6 +1870,7 @@ class CharacterEditorState extends MusicBeatState
       // Two fingers move and scale the view. A drag underway is abandoned
       // rather than fighting the pinch.
       dragging = false;
+      panning = false;
 
       var a = touches[0].getWorldPosition(camUI);
       var b = touches[1].getWorldPosition(camUI);
@@ -1803,6 +1909,7 @@ class CharacterEditorState extends MusicBeatState
       var view = TouchUtil.touch.getWorldPosition(camUI);
       var over = overPanel(view.x, view.y);
       pressedAt.set(view.x, view.y);
+      lastPan.set(view.x, view.y);
       view.putWeak();
 
       pressWasDrag = false;
@@ -1810,19 +1917,30 @@ class CharacterEditorState extends MusicBeatState
       if (!over)
       {
         var point = TouchUtil.touch.getWorldPosition(camStage);
-        var offset = currentOffset();
 
-        dragging = true;
-        dragAnchor.set(point.x + offset[0], point.y + offset[1]);
+        // A finger that goes down on the character moves the character.
+        // Anywhere else on the stage it moves the view, which is the only
+        // way to reach a character that has been dragged off the screen.
+        if (overCharacter(point.x, point.y))
+        {
+          var offset = currentOffset();
+
+          dragging = true;
+          dragAnchor.set(point.x + offset[0], point.y + offset[1]);
+        }
+        else
+        {
+          panning = true;
+        }
+
         point.putWeak();
       }
     }
 
-    if (dragging && TouchUtil.pressed)
+    if (TouchUtil.pressed && (dragging || panning))
     {
       var view = TouchUtil.touch.getWorldPosition(camUI);
       var wandered = view.distanceTo(pressedAt);
-      view.putWeak();
 
       // Until the finger has gone somewhere this might still turn out to be a
       // tap, and moving the character on the way would undo itself anyway.
@@ -1830,10 +1948,21 @@ class CharacterEditorState extends MusicBeatState
       {
         pressWasDrag = true;
 
-        var point = TouchUtil.touch.getWorldPosition(camStage);
-        setOffset(dragAnchor.x - point.x, dragAnchor.y - point.y);
-        point.putWeak();
+        if (dragging)
+        {
+          var point = TouchUtil.touch.getWorldPosition(camStage);
+          setOffset(dragAnchor.x - point.x, dragAnchor.y - point.y);
+          point.putWeak();
+        }
+        else
+        {
+          camStage.scroll.x -= (view.x - lastPan.x) / camStage.zoom;
+          camStage.scroll.y -= (view.y - lastPan.y) / camStage.zoom;
+        }
       }
+
+      lastPan.set(view.x, view.y);
+      view.putWeak();
     }
 
     if (!TouchUtil.pressed)
@@ -1844,6 +1973,7 @@ class CharacterEditorState extends MusicBeatState
       if (dragging && !pressWasDrag) replayAnimation();
 
       dragging = false;
+      panning = false;
     }
   }
   #else
@@ -1856,6 +1986,7 @@ class CharacterEditorState extends MusicBeatState
       var view = FlxG.mouse.getViewPosition(camUI);
       var over = overPanel(view.x, view.y);
       pressedAt.set(view.x, view.y);
+      lastPan.set(view.x, view.y);
       view.putWeak();
 
       pressWasDrag = false;
@@ -1863,28 +1994,47 @@ class CharacterEditorState extends MusicBeatState
       if (!over)
       {
         var point = FlxG.mouse.getWorldPosition(camStage);
-        var offset = currentOffset();
 
-        dragging = true;
-        dragAnchor.set(point.x + offset[0], point.y + offset[1]);
+        if (overCharacter(point.x, point.y))
+        {
+          var offset = currentOffset();
+
+          dragging = true;
+          dragAnchor.set(point.x + offset[0], point.y + offset[1]);
+        }
+        else
+        {
+          panning = true;
+        }
+
         point.putWeak();
       }
     }
 
-    if (dragging && FlxG.mouse.pressed)
+    if (FlxG.mouse.pressed && (dragging || panning))
     {
       var view = FlxG.mouse.getViewPosition(camUI);
       var wandered = view.distanceTo(pressedAt);
-      view.putWeak();
 
       if (wandered > TAP_SLOP)
       {
         pressWasDrag = true;
 
-        var point = FlxG.mouse.getWorldPosition(camStage);
-        setOffset(dragAnchor.x - point.x, dragAnchor.y - point.y);
-        point.putWeak();
+        if (dragging)
+        {
+          var point = FlxG.mouse.getWorldPosition(camStage);
+          setOffset(dragAnchor.x - point.x, dragAnchor.y - point.y);
+          point.putWeak();
+        }
+        else
+        {
+          camStage.scroll.x -= (view.x - lastPan.x) / camStage.zoom;
+          camStage.scroll.y -= (view.y - lastPan.y) / camStage.zoom;
+        }
       }
+
+      lastPan.set(view.x, view.y);
+      view.putWeak();
     }
 
     if (!FlxG.mouse.pressed)
@@ -1892,6 +2042,7 @@ class CharacterEditorState extends MusicBeatState
       if (dragging && !pressWasDrag) replayAnimation();
 
       dragging = false;
+      panning = false;
     }
 
     if (FlxG.mouse.wheel != 0)
