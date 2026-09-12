@@ -1356,12 +1356,20 @@ class StageEditorState extends UIState
 
         FileUtil.browseForFile('Open Stage Data', [FileUtil.FILE_FILTER_FNFS], function(_)
         {
-          if (_?.fullPath == null) return;
+          // The bytes the picker already read, rather than reading the path
+          // again. On Android that path is a content URI, and reading by
+          // path goes through a plain file open, which cannot make anything
+          // of one -- it throws, which is the crash rather than the
+          // "could not be loaded" this was written to show.
+          if (_?.bytes == null) return;
 
           clearAssets();
 
-          currentFile = _.fullPath;
-          this.unpackShitFromZip(FileUtil.readBytesFromPath(currentFile));
+          // Nothing can write back to a content URI either, so there is no
+          // file to save over and saving falls through to asking where.
+          currentFile = #if mobile '' #else (_.fullPath ?? '') #end;
+
+          this.unpackShitFromZip(_.bytes);
 
           reloadRecentFiles();
         }, function()

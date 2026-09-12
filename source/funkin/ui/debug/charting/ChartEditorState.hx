@@ -4897,9 +4897,18 @@ class ChartEditorState extends UIState // UIState derives from MusicBeatState
       }
       else if (touch.dragging && !touch.held)
       {
+        // Both, and not one: the scroll position is eased towards
+        // currentScrollEase every frame, so moving it on its own is undone
+        // within a few frames. A finger is direct manipulation and wants no
+        // easing at all -- the finger is the ease.
+        if ((audioInstTrack?.isPlaying ?? false) || audioVocalTrackGroup.playing) stopAudioPlayback();
+
         // Against the drag rather than with it: the chart moves under the
         // finger the way a page does, so dragging down goes back in time.
-        scrollPositionInPixels -= touch.dragY;
+        var to:Float = Math.min(songLengthInPixels, Math.max(0, scrollPositionInPixels - touch.dragY));
+
+        scrollPositionInPixels = to;
+        currentScrollEase = to;
         moveSongToScrollPosition();
       }
     }

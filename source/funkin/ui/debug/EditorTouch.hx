@@ -1,9 +1,6 @@
 package funkin.ui.debug;
 
 import flixel.math.FlxPoint;
-#if mobile
-import funkin.util.TouchUtil;
-#end
 
 /**
  * The gestures the editors have in common.
@@ -91,6 +88,23 @@ class EditorTouch
 
   public var justHeld(default, null):Bool = false;
 
+  /**
+   * How much of each new reading to believe.
+   *
+   * Two fingers resting on glass wander by a pixel or two every frame, and
+   * a pinch turns that wander into a ratio: a couple of pixels across a
+   * few hundred is a fraction of a percent of zoom, sixty times a second,
+   * which reads as the whole view shimmering. Following a smoothed reading
+   * instead costs a few milliseconds of lag nobody can feel.
+   */
+  static final SMOOTHING:Float = 0.4;
+
+  /**
+   * How much the fingers have to spread before it counts as a pinch rather
+   * than as a hand that is not quite still.
+   */
+  static final SPREAD_SLOP:Float = 0.002;
+
   var lastX:Float = 0;
   var lastY:Float = 0;
   var lastSpread:Float = 0;
@@ -140,24 +154,41 @@ class EditorTouch
     var midX:Float = (ax + bx) / 2;
     var midY:Float = (ay + by) / 2;
     var apart:Float = FlxPoint.weak(ax, ay).distanceTo(FlxPoint.weak(bx, by));
+    var was = {x: lastX, y: lastY};
 
-    if (pinching)
+    if (!pinching)
     {
-      panX = midX - lastX;
-      panY = midY - lastY;
-
-      // Only when both readings are real: a ratio taken against nothing is
-      // an enormous jump on the frame the second finger lands.
-      if (lastSpread > 1 && apart > 1) spread = apart / lastSpread;
+      // Nothing to compare the first frame against.
+      lastX = midX;
+      lastY = midY;
+      lastSpread = apart;
+      pinching = true;
+      dragging = false;
+      held = false;
+      return;
     }
 
-    pinching = true;
-    dragging = false;
-    held = false;
+    // Chase the reading rather than take it, so the jitter in it does not
+    // reach the view.
+    lastX += (midX - lastX) * SMOOTHING;
+    lastY += (midY - lastY) * SMOOTHING;
 
-    lastX = midX;
-    lastY = midY;
-    lastSpread = apart;
+    panX = lastX - was.x;
+    panY = lastY - was.y;
+
+    if (lastSpread > 1 && apart > 1)
+    {
+      var settled:Float = lastSpread + (apart - lastSpread) * SMOOTHING;
+      var ratio:Float = settled / lastSpread;
+
+      if (Math.abs(ratio - 1) > SPREAD_SLOP) spread = ratio;
+
+      lastSpread = settled;
+    }
+    else
+    {
+      lastSpread = apart;
+    }
   }
 
   /**
