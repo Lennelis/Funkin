@@ -320,7 +320,9 @@ class StageEditorState extends UIState
     root.width = FlxG.width;
     root.height = FlxG.height;
 
-    menubar.height = 35;
+    // Tall enough for the padding that holds the menus clear of the screen's
+    // rounded corners.
+    menubar.height = 59;
     WindowManager.instance.container = root;
     Screen.instance.addComponent(root);
 
@@ -667,6 +669,12 @@ class StageEditorState extends UIState
 
     // key shortcuts and inputs
     if (pressingControl() && FlxG.keys.justPressed.Q) onMenuItemClick('exit');
+
+    // The way out of anything on a phone. Through the same door as the menu
+    // row, so it still asks about unsaved work first.
+    #if android
+    if (FlxG.android.justReleased.BACK) onMenuItemClick('exit');
+    #end
 
     if (allowInput && welcomeDialog == null && userGuideDialog == null)
     {

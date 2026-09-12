@@ -174,8 +174,12 @@ class ChartEditorState extends UIState // UIState derives from MusicBeatState
 
   /**
    * The height of the menu bar in the layout.
+   *
+   * The bar is padded away from the top of the screen so a rounded corner is
+   * not sitting on top of the first menu, and the grid has to start below all
+   * of it rather than below where it used to end.
    */
-  public static final MENU_BAR_HEIGHT:Int = 32;
+  public static final MENU_BAR_HEIGHT:Int = 56;
 
   /**
    * The height of the playbar in the layout.
@@ -3789,6 +3793,16 @@ class ChartEditorState extends UIState // UIState derives from MusicBeatState
       quitChartEditor();
       return;
     }
+
+    // The way out of anything on a phone. Through the same door as the menu
+    // row, so the autosave and the cleanup still happen.
+    #if android
+    if (FlxG.android.justReleased.BACK && !criticalFailure && !isHaxeUIDialogOpen)
+    {
+      quitChartEditor(true);
+      return;
+    }
+    #end
 
     // dispatchEvent gets called here.
     super.update(elapsed);

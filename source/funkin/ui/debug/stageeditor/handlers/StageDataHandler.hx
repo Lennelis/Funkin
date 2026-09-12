@@ -292,12 +292,27 @@ class StageDataHandler
         }
         else
         {
-          neededFiles.push(state.createFile('${objData.assetPath}.png', Assets.getBytes(Paths.image(objData.assetPath))));
+          // Asked for in the stage's own library, the way the atlas branch
+          // above already does. A stage that belongs to a level keeps its
+          // art there rather than in shared, so looking without saying
+          // which library finds nothing -- and getBytes on nothing throws
+          // rather than returning it.
+          var image:String = Paths.image(objData.assetPath, state.stageFolder);
+
+          if (!Assets.exists(image))
+          {
+            state.notifyChange('Problem Loading the Stage', 'Could not find ${objData.assetPath} for ${objData.name ?? "a prop"}.', true);
+            continue;
+          }
+
+          neededFiles.push(state.createFile('${objData.assetPath}.png', Assets.getBytes(image)));
 
           var animFile:String = '${objData.assetPath}${objData.animType == "packer" ? ".txt" : ".xml"}';
-          if (Assets.exists(Paths.file('images/$animFile')))
+          var described:String = Paths.file('images/$animFile', TEXT, state.stageFolder);
+
+          if (Assets.exists(described))
           {
-            neededFiles.push(state.createFile(animFile, Assets.getBytes(Paths.file('images/$animFile'))));
+            neededFiles.push(state.createFile(animFile, Assets.getBytes(described)));
           }
         }
       }
