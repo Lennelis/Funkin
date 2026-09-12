@@ -37,6 +37,42 @@ class Assets implements ConsoleClass
   }
 
   /**
+   * Load bytes from an asset, whatever kind of asset it has been filed as.
+   *
+   * `getBytes` only answers for assets the library was told are binary, and a
+   * packaged build files art as images and descriptions as text -- so asking
+   * for the bytes of a PNG that is sitting right there throws. On desktop it
+   * happens to work, because the library is reading loose files off disk and
+   * hands back whatever is asked of it, which is why this only bites once
+   * something is packaged. Fetch each one as the kind of thing it was filed
+   * as instead, and turn that back into bytes.
+   *
+   * An image comes back re-encoded rather than byte-for-byte as it was
+   * authored, so this is for handing a file onwards, not for checksums.
+   *
+   * @param path The asset path to load from
+   * @return The byte contents, or null if there is nothing there at all
+   */
+  public static function getAnyBytes(path:String):Null<haxe.io.Bytes>
+  {
+    if (exists(path, openfl.utils.AssetType.BINARY)) return getBytes(path);
+
+    if (exists(path, openfl.utils.AssetType.IMAGE))
+    {
+      var bitmap:Null<openfl.display.BitmapData> = getBitmapData(path);
+
+      if (bitmap == null) return null;
+
+      var encoded:openfl.utils.ByteArray.ByteArrayData = bitmap.encode(bitmap.rect, new openfl.display.PNGEncoderOptions());
+      return encoded;
+    }
+
+    if (exists(path, openfl.utils.AssetType.TEXT)) return haxe.io.Bytes.ofString(getText(path));
+
+    return null;
+  }
+
+  /**
    * Load bytes from an asset asynchronously
    * @param path The asset path to load from
    * @return A future which promises to return the byte contents of the file

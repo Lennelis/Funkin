@@ -287,33 +287,27 @@ class StageDataHandler
             if (!file.startsWith(checkFor)) continue;
 
             var validName:String = objData.assetPath + file.substring(checkFor.length);
-            neededFiles.push(state.createFile(validName, Assets.getBytes('${state.stageFolder}:$file')));
+            var atlasFile:Null<Bytes> = Assets.getAnyBytes('${state.stageFolder}:$file');
+
+            if (atlasFile != null) neededFiles.push(state.createFile(validName, atlasFile));
           }
         }
         else
         {
-          // Asked for in the stage's own library, the way the atlas branch
-          // above already does. A stage that belongs to a level keeps its
-          // art there rather than in shared, so looking without saying
-          // which library finds nothing -- and getBytes on nothing throws
-          // rather than returning it.
-          var image:String = Paths.image(objData.assetPath, state.stageFolder);
+          var image:Null<Bytes> = Assets.getAnyBytes(Paths.image(objData.assetPath, state.stageFolder));
 
-          if (!Assets.exists(image))
+          if (image == null)
           {
-            state.notifyChange('Problem Loading the Stage', 'Could not find ${objData.assetPath} for ${objData.name ?? "a prop"}.', true);
+            state.notifyChange('Problem Loading the Stage', 'Could not read ${objData.assetPath} for ${objData.name ?? "a prop"}.', true);
             continue;
           }
 
-          neededFiles.push(state.createFile('${objData.assetPath}.png', Assets.getBytes(image)));
+          neededFiles.push(state.createFile('${objData.assetPath}.png', image));
 
           var animFile:String = '${objData.assetPath}${objData.animType == "packer" ? ".txt" : ".xml"}';
-          var described:String = Paths.file('images/$animFile', TEXT, state.stageFolder);
+          var described:Null<Bytes> = Assets.getAnyBytes(Paths.file('images/$animFile', TEXT, state.stageFolder));
 
-          if (Assets.exists(described))
-          {
-            neededFiles.push(state.createFile(animFile, Assets.getBytes(described)));
-          }
+          if (described != null) neededFiles.push(state.createFile(animFile, described));
         }
       }
 

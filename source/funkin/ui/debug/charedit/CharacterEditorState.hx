@@ -2557,7 +2557,10 @@ class CharacterEditorState extends MusicBeatState
 
     try
     {
-      var image:haxe.io.Bytes = openfl.utils.Assets.getBytes(imageId);
+      // Not getBytes: a packaged build files the sheet as an image rather
+      // than as binary, and asking for its bytes throws into the catch
+      // below, which is why exporting never got as far as writing anything.
+      var image:Null<haxe.io.Bytes> = funkin.Assets.getAnyBytes(imageId);
       if (image == null) return false;
 
       FileUtil.writeBytesToPath('$staging/$sheet.png', lime.utils.Bytes.fromBytes(image), Force);
