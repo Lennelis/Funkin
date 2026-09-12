@@ -383,7 +383,7 @@ class InitState extends FlxState
     #elseif EDITOR_APP
     // -DEDITOR_APP
     // The editors as the app, rather than as a detour from a game.
-    FlxG.switchState(() -> new funkin.ui.debug.EditorHubState());
+    FlxG.switchState(() -> new funkin.ui.debug.EditorIntroState());
     #elseif CHARTING
     // -DCHARTING
     FlxG.switchState(() -> new funkin.ui.debug.charting.ChartEditorState());
