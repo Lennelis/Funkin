@@ -195,16 +195,10 @@ class EditorIntroState extends MusicBeatState
     blackout.scrollFactor.set(0, 0);
     add(blackout);
 
-    // Started here and left alone: the editors screen plays the same track
-    // and will not restart something already going, so the music carries
-    // straight through the cut rather than beginning again behind it.
-    FunkinSound.playMusic('chartEditorLoop',
-      {
-        overrideExisting: true,
-        restartTrack: true,
-        persist: true
-      });
-
+    // No music. The three sounds are the whole soundtrack of this: a loop
+    // playing underneath would be something the slams have to cut through
+    // rather than land in silence. The editors screen starts the track once
+    // this is over.
     tick(0);
   }
 

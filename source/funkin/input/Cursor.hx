@@ -20,9 +20,16 @@ class Cursor
    */
   public static inline function show():Void
   {
+    #if mobile
+    // There is no cursor to show on a touch device. Nothing is pointing at
+    // anything between taps, so a cursor would sit wherever the last tap
+    // left it and read as a thing you could move.
+    FlxG.mouse.visible = false;
+    #else
     FlxG.mouse.visible = true;
     // Reset the cursor mode.
     Cursor.cursorMode = Default;
+    #end
   }
 
   /**

@@ -983,6 +983,11 @@ class ChartEditorState extends UIState // UIState derives from MusicBeatState
    */
   var selectionBoxStartPos:Null<FlxPoint> = null;
 
+  /**
+   * The gestures this editor answers to, on a device that has them.
+   */
+  var touch:funkin.ui.debug.EditorTouch = new funkin.ui.debug.EditorTouch();
+
   // History
 
   /**
@@ -3790,6 +3795,9 @@ class ChartEditorState extends UIState // UIState derives from MusicBeatState
 
     if (criticalFailure) return;
 
+    // Read once a frame, before anything asks what the fingers are doing.
+    touch.update(elapsed);
+
     // These ones happen even if the modal dialog is open.
     handleMusicPlayback(elapsed);
     handleNoteDisplay();
@@ -4860,15 +4868,42 @@ class ChartEditorState extends UIState // UIState derives from MusicBeatState
       }
       else if (!isCursorOverHaxeUI && (!overlapsGrid || overlapsSelectionBorder))
       {
+        // Not on a touchscreen, where the same press beside the grid is how
+        // you scroll. There a selection box waits for a finger held still,
+        // which is handled below rather than here: by the time a hold has
+        // been recognised the press is long over.
+        #if !mobile
         selectionBoxStartPos = new FlxPoint(FlxG.mouse.viewX, FlxG.mouse.viewY);
         // Drawing selection box.
         targetCursorMode = Crosshair;
+        #end
       }
       else if (overlapsSelection)
       {
         // Do nothing
       }
     }
+
+    #if mobile
+    // Beside the grid, a finger does one of two things. Dragged, it scrolls
+    // the chart, which is the thing you want nine times out of ten and so
+    // is what a press means by default. Held still first, it draws a
+    // selection box, which is the other one.
+    if (!isCursorOverHaxeUI && !overlapsGrid && selectionBoxStartPos == null)
+    {
+      if (touch.justHeld)
+      {
+        selectionBoxStartPos = new FlxPoint(touch.startX, touch.startY);
+      }
+      else if (touch.dragging && !touch.held)
+      {
+        // Against the drag rather than with it: the chart moves under the
+        // finger the way a page does, so dragging down goes back in time.
+        scrollPositionInPixels -= touch.dragY;
+        moveSongToScrollPosition();
+      }
+    }
+    #end
 
     if (gridPlayheadScrollAreaPressed && FlxG.mouse.released)
     {

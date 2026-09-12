@@ -540,6 +540,11 @@ class StageEditorState extends UIState
     FlxG.sound.music.fadeIn(10, 0, 1);
   }
 
+  /**
+   * The gestures this editor answers to, on a device that has them.
+   */
+  var touch:funkin.ui.debug.EditorTouch = new funkin.ui.debug.EditorTouch();
+
   var curTestChar:Int = 0;
 
   override public function beatHit()
@@ -640,6 +645,23 @@ class StageEditorState extends UIState
       && !isCursorOverHaxeUI) // include the floating poing error thing
     {
       camGame.zoom += FlxG.mouse.deltaWheel.y / 10;
+      updateBGSize();
+    }
+
+    // Two fingers do what the wheel and the arrow keys do, since a phone has
+    // neither. One finger is left alone: that is still how you pick a thing
+    // up and move it.
+    touch.update(elapsed);
+
+    if (touch.pinching)
+    {
+      // Against the zoom, so a drag moves the stage by what is under the
+      // fingers rather than by a distance that shrinks as you zoom out.
+      camFollow.x -= touch.panX / camGame.zoom;
+      camFollow.y -= touch.panY / camGame.zoom;
+      camFollow.velocity.set();
+
+      camGame.zoom = Math.max(0.11, camGame.zoom * touch.spread);
       updateBGSize();
     }
 
