@@ -28,6 +28,13 @@ class ModuleHandler
     clearModuleCache();
     trace('[MODULEHANDLER] Loading module cache...');
 
+    #if FEATURE_PSYCH_LUA
+    // Not a scripted module - this one is built in, and owns every Psych Engine Lua
+    // script the loaded mods ship. It sits in the same queue as the rest so nothing
+    // else in the game has to know that Lua exists.
+    addToModuleCache(new funkin.modding.psych.PsychScriptHandler());
+    #end
+
     var scriptedModuleClassNames:Array<String> = ScriptedModule.listScriptClasses();
     trace(' Instantiating ${scriptedModuleClassNames.length} modules...');
     for (moduleCls in scriptedModuleClassNames)

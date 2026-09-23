@@ -51,7 +51,7 @@ class PolymodHandler
   /**
    * Where relative to the executable that mods are located.
    */
-  static final MOD_FOLDER:String =
+  public static final MOD_FOLDER:String =
     #if (REDIRECT_ASSETS_FOLDER && mac)
     '../../../../../../../example_mods'
     #elseif REDIRECT_ASSETS_FOLDER

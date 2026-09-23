@@ -447,6 +447,14 @@ class Project extends HXProject
   static final FEATURE_PARTIAL_SOUNDS:FeatureFlag = "FEATURE_PARTIAL_SOUNDS";
 
   /**
+   * `-DFEATURE_PSYCH_LUA`
+   * If this flag is enabled, the game will run Psych Engine's Lua scripts out of installed
+   * mods, via the linc_luajit library.
+   * Native only: LuaJIT is a C library, so there is nothing to link against on HTML5.
+   */
+  static final FEATURE_PSYCH_LUA:FeatureFlag = "FEATURE_PSYCH_LUA";
+
+  /**
    * `-DFEATURE_POLYMOD_MODS`
    * If this flag is enabled, the game will enable the Polymod library's support for atomic mod loading from the `./mods` folder.
    * If this flag is disabled, no mods will be loaded.
@@ -859,6 +867,11 @@ class Project extends HXProject
     FEATURE_OPEN_URL.apply(this, true);
     FEATURE_PARTIAL_SOUNDS.apply(this, true);
     FEATURE_POLYMOD_MODS.apply(this, true);
+
+    // Psych mods are Lua, and LuaJIT has no web build. Mods themselves are on everywhere,
+    // so a browser build still loads a Psych mod's images and charts - it just cannot run
+    // the scripts.
+    FEATURE_PSYCH_LUA.apply(this, !isWeb() && FEATURE_POLYMOD_MODS.isEnabled(this));
 
     // Video playback should be enabled on desktop, web, and mobile.
     FEATURE_VIDEO_PLAYBACK.apply(this, true);
@@ -1292,6 +1305,11 @@ class Project extends HXProject
     }
 
     addHaxelib('polymod'); // Modding framework
+
+    if (FEATURE_PSYCH_LUA.isEnabled(this))
+    {
+      addHaxelib('linc_luajit'); // LuaJIT bindings, for running Psych Engine mod scripts
+    }
     addHaxelib('flixel-animate'); // Texture atlas rendering
 
     addHaxelib('json2object'); // JSON parsing
