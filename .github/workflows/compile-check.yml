@@ -1,0 +1,102 @@
+# Typechecks the game on a GitHub-hosted runner.
+#
+# build-game.yml can't run here. Its jobs ask for `runs-on: build-set` (and `windows`,
+# and `macos`), which are labels on FunkinCrew's own self-hosted machines - a runner is a
+# machine registered to an organisation, not a file in a repository, so a fork cannot
+# inherit one. Jobs asking for those labels queue forever.
+#
+# Everything those machines provide, though, is reproducible: build/Dockerfile is in this
+# repo and is plain apt and haxe, every dependency in hmm.json is a public repository, and
+# so is the assets submodule. So this is the same build on an ordinary ubuntu runner.
+#
+# It typechecks rather than building. `lime display` prints the hxml the real build would
+# use, and `haxe --no-output` runs the whole front end over it - every macro, every type -
+# without handing anything to C++. That is minutes instead of most of an hour, and it is
+# what catches the mistakes worth catching early. It does NOT check that the native
+# libraries link, which is a separate thing and a real risk for anything with C in it.
+
+name: Compile check
+
+on:
+  push:
+    branches: [claude/psych-engine-mobile-port-9sau2w]
+
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      # Assets only, and shallow. `art` isn't needed to compile, and the full history of
+      # a 2.5GB asset repository is not something to fetch for a typecheck.
+      - name: Fetch the assets submodule
+        run: git submodule update --init --depth 1 --recommend-shallow assets
+
+      - name: Install Haxe
+        uses: funkincrew/ci-haxe@v3.2.7
+        with:
+          haxe-version: 4.3.7
+
+      # lime's own tooling links against these even when it is only being asked to print
+      # an hxml, because loading the project config loads lime.
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ libc6-dev libffi-dev \
+            libx11-dev libxi-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev \
+            libgl-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev \
+            libvlc-dev libvlccore-dev
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libffi.so.8 /usr/lib/x86_64-linux-gnu/libffi.so.6 || true
+
+      # The game needs FunkinCrew's forks of both: hmm.json uses fields their hmm
+      # understands, and haxelib is patched to go with it. This is lifted from
+      # .github/actions/setup-haxe, which can't be reused as-is because it assumes it is
+      # root inside their container and calls apt without sudo.
+      - name: Set up haxelib and hmm
+        run: |
+          haxelib fixrepo --global || true
+          haxelib --never --global install haxelib 4.1.0
+          haxelib --global set haxelib 4.1.0
+          haxelib --global remove haxelib git || true
+          haxelib --global remove hmm || true
+          rm -rf .haxelib
+          haxelib --never --global git haxelib https://github.com/FunkinCrew/haxelib.git funkin-patches --skip-dependencies
+          haxelib --never --global git hmm https://github.com/FunkinCrew/hmm funkin-patches
+          haxelib --never newrepo
+          haxelib version
+
+      - name: Restore cached dependencies
+        id: cache-hmm
+        uses: actions/cache@v4
+        with:
+          path: .haxelib
+          key: haxe-hmm-${{ runner.os }}-${{ hashFiles('hmm.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-hmm.outputs.cache-hit != 'true'
+        run: haxelib --global run hmm install -q
+
+      # Only read for API keys, which a typecheck has no use for. Its absence is a warning
+      # rather than an error, but the warning is noise in a log that should be readable.
+      - name: Create an empty .env
+        run: touch .env
+
+      - name: Typecheck
+        run: |
+          # -DGITHUB_BUILD is what the real build passes; without it the project config
+          # takes a different branch and this would be checking something else.
+          haxelib run lime display linux -release -DGITHUB_BUILD > build.hxml
+
+          echo "::group::build.hxml"
+          cat build.hxml
+          echo "::endgroup::"
+
+          haxe build.hxml --no-output
