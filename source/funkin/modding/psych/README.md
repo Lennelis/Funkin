@@ -40,6 +40,12 @@ mods/<mod>/scripts/*.lua          every song
 mods/<mod>/data/<songId>/*.lua    that song
 ```
 
+A debug build is the exception, and it catches people out: `-debug` turns on
+`REDIRECT_ASSETS_FOLDER`, which moves the mod root to `example_mods/` in the project
+folder. This follows `PolymodHandler.MOD_FOLDER` rather than hardcoding `mods`, so it
+lands in the same place the rest of the modding system does - but it does mean a mod you
+dropped in `mods/` will not be found by a debug build.
+
 Read straight off disk rather than through Polymod. Polymod exists to let one mod's file
 replace another's, which is right for images and charts and wrong here - two mods that
 both ship `scripts/init.lua` both want theirs to run, and going through the asset layer
