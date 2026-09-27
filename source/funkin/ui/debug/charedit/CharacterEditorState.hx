@@ -4,7 +4,7 @@ import flixel.FlxSprite;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.math.FlxPoint;
 import flixel.text.FlxText;
-import flixel.text.FlxTextFormat;
+import flixel.text.FlxText.FlxTextFormat;
 import flixel.util.FlxColor;
 import flixel.util.FlxSpriteUtil;
 import funkin.data.animation.AnimationData;
