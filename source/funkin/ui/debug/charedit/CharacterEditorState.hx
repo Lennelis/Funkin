@@ -4,7 +4,9 @@ import flixel.FlxSprite;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.math.FlxPoint;
 import flixel.text.FlxText;
+import flixel.text.FlxTextFormat;
 import flixel.util.FlxColor;
+import flixel.util.FlxSpriteUtil;
 import funkin.data.animation.AnimationData;
 import funkin.data.character.CharacterData;
 import funkin.data.character.CharacterData.CharacterDataParser;
@@ -226,6 +228,54 @@ class CharacterEditorState extends MusicBeatState
    */
   var bg:Null<FlxSprite> = null;
 
+  /**
+   * The two slots this character is not standing in, drawn as outlines.
+   *
+   * Scale is the thing a character editor cannot show you on its own: a
+   * sprite alone on a stage is whatever size the screen says, and the only
+   * way to know a character is too big is to stand it next to one that is
+   * the right size. These are the real characters the game puts in those
+   * slots, at the positions the stage puts them, darkened until they read as
+   * the room rather than as the subject.
+   */
+  var silhouettes:Array<BaseCharacter> = [];
+
+  /**
+   * Where the game's camera looks while this character sings.
+   *
+   * The camera offsets are two numbers in a box until something draws them,
+   * and getting them wrong is the sort of thing nobody notices until a song
+   * is running.
+   */
+  var cameraPoint:Null<FlxSprite> = null;
+
+  /**
+   * What the stage adds to the camera point on top of the character's own
+   * offsets.
+   *
+   * Every stage nudges the camera for the slot as well, so the point the
+   * game actually looks at is the sum of the two. Worked out once when the
+   * character is stood up, by taking the difference between the point the
+   * stage arrived at and the point the character's own numbers ask for --
+   * which saves reaching into the stage's data for a field it does not
+   * publish.
+   */
+  var stageCameraOffset:FlxPoint = FlxPoint.get(0, 0);
+
+  /**
+   * Every animation at once, with the one playing picked out.
+   *
+   * The dropdown says which animation is selected but not what else there
+   * is, and "what else is there" is most of the question while checking a
+   * character over.
+   */
+  var animList:Null<FlxText> = null;
+
+  /**
+   * Which frame of the animation is on screen, and how many there are.
+   */
+  var frameLabel:Null<Label> = null;
+
   var menubar:Null<MenuBar> = null;
 
   /**
@@ -247,6 +297,11 @@ class CharacterEditorState extends MusicBeatState
    * The View rows naming the stage slots, so the one in use stays marked.
    */
   var positionRows:Map<CharacterType, MenuOptionBox> = new Map<CharacterType, MenuOptionBox>();
+
+  /**
+   * The View rows that turn part of the reference layer on and off.
+   */
+  var viewToggles:Map<String, MenuCheckBox> = new Map<String, MenuCheckBox>();
 
   /**
    * Everything that puts a value from the character file onto a control.
@@ -500,6 +555,7 @@ class CharacterEditorState extends MusicBeatState
 
     buildMenubar();
     buildWindows();
+    buildReferenceLayer();
 
     var opening:Null<String> = pendingCharacterId;
     pendingCharacterId = null;
@@ -564,6 +620,13 @@ class CharacterEditorState extends MusicBeatState
     wireMenuItem('menuResetOffset', resetOffset);
     wireMenuItem('menuReplay', replayAnimation);
     wireMenuItem('menuResetCamera', lookAtCharacter);
+    wireViewToggle('menuSilhouettes', showSilhouettes);
+    wireViewToggle('menuCameraPoint', _ -> refreshCameraPoint());
+    wireViewToggle('menuAnimList', function(on) {
+      if (animList != null) animList.visible = on;
+      refreshAnimList();
+    });
+
     wirePosition('menuPositionBf', BF);
     wirePosition('menuPositionDad', DAD);
     wirePosition('menuPositionGf', GF);
@@ -572,6 +635,34 @@ class CharacterEditorState extends MusicBeatState
   /**
    * Tie one of the View rows to the slot it names.
    */
+  /**
+   * Tie a row under View to something that goes on and off.
+   *
+   * The same shape as a window's row, but these are not windows: nothing to
+   * put away afterwards and nothing that can untick itself, so they need no
+   * bookkeeping beyond the row's own state.
+   */
+  function wireViewToggle(id:String, apply:Bool->Void):Void
+  {
+    if (menubar == null) return;
+
+    var row = menubar.findComponent(id, MenuCheckBox);
+    if (row == null) return;
+
+    viewToggles.set(id, row);
+    row.registerEvent(UIEvent.CHANGE, function(_) apply(row.selected));
+  }
+
+  /**
+   * Whether a View row is ticked, for the things that have to be put back
+   * after the character underneath them is rebuilt.
+   */
+  function viewTicked(id:String):Bool
+  {
+    var row = viewToggles.get(id);
+    return row != null && row.selected;
+  }
+
   function wirePosition(id:String, slot:CharacterType):Void
   {
     if (menubar == null) return;
@@ -1004,10 +1095,14 @@ class CharacterEditorState extends MusicBeatState
       if (character != null) character.globalOffsets = data.offsets;
     });
 
-    bindStepper(dialog, 'cameraXStepper', () -> pairValue(data?.cameraOffsets, 0),
-      function(value) data.cameraOffsets = [value, pairValue(data.cameraOffsets, 1)]);
-    bindStepper(dialog, 'cameraYStepper', () -> pairValue(data?.cameraOffsets, 1),
-      function(value) data.cameraOffsets = [pairValue(data.cameraOffsets, 0), value]);
+    bindStepper(dialog, 'cameraXStepper', () -> pairValue(data?.cameraOffsets, 0), function(value) {
+      data.cameraOffsets = [value, pairValue(data.cameraOffsets, 1)];
+      refreshCameraPoint();
+    });
+    bindStepper(dialog, 'cameraYStepper', () -> pairValue(data?.cameraOffsets, 1), function(value) {
+      data.cameraOffsets = [pairValue(data.cameraOffsets, 0), value];
+      refreshCameraPoint();
+    });
 
     bindField(dialog, 'startingAnimationField', () -> data?.startingAnimation ?? 'idle',
       function(value) data.startingAnimation = value);
@@ -1121,6 +1216,10 @@ class CharacterEditorState extends MusicBeatState
     bindButton(dialog, 'resetOffsetButton', resetOffset);
     bindButton(dialog, 'undoOffsetButton', undoOffset);
     bindButton(dialog, 'replayButton', replayAnimation);
+
+    frameLabel = dialog.findComponent('frameLabel', Label);
+    bindButton(dialog, 'frameBackButton', () -> stepFrame(-1));
+    bindButton(dialog, 'frameForwardButton', () -> stepFrame(1));
 
     copyOffsetDropdown = dialog.findComponent('copyOffsetDropdown', DropDown);
     if (copyOffsetDropdown != null)
@@ -1704,6 +1803,11 @@ class CharacterEditorState extends MusicBeatState
    */
   function clearCharacter():Void
   {
+    // Before the stage goes, while there is still something to take them
+    // off. A stage destroyed with them still on it destroys them too, and
+    // this would then be holding two dead characters.
+    dropSilhouettes();
+
     // The ghost stays. Standing a new character exactly where another one
     // stands is most of the reason to leave one, so it outlives the
     // character it was made from and goes when it is turned off.
@@ -1782,6 +1886,23 @@ class CharacterEditorState extends MusicBeatState
     // belongs to this character.
     offsetHistory = [];
 
+    // While the point the stage worked out is still the stage's own.
+    measureStageCamera();
+
+    // Rebuilt rather than left: the outlines fill the slots this character
+    // is not in, and which slot that is may have just changed.
+    showSilhouettes(viewTicked('menuSilhouettes'));
+
+    // Lifted over whatever the stage just added, so the mark on the camera
+    // point is not behind the scenery it marks.
+    if (cameraPoint != null)
+    {
+      remove(cameraPoint);
+      add(cameraPoint);
+    }
+
+    refreshCameraPoint();
+
     lookAtCharacter();
     refreshBackdrop();
 
@@ -1828,6 +1949,58 @@ class CharacterEditorState extends MusicBeatState
     say('No art for $characterId. image ${haveImage ? "ok" : "MISSING"} ($image), xml ${haveDescription ? "ok" : "MISSING"} ($description)');
   }
 
+  /**
+   * Move one frame along the animation, and stop it there.
+   *
+   * An offset is judged on one frame at a time -- the frame a sing lands on,
+   * the frame a miss starts from -- and at the frame rate the animation runs
+   * at there is no catching one by eye. Psych's editor does this with A and
+   * D; a phone has neither, so it is two buttons.
+   *
+   * Works the same for an Animate atlas character: the atlas controller is
+   * the same object as the sprite's animation controller, so the frame
+   * counter behind both is the one being moved here.
+   */
+  function stepFrame(by:Int):Void
+  {
+    if (character == null) return;
+
+    var playing = character.animation.curAnim;
+    if (playing == null) return;
+
+    playing.pause();
+
+    var to:Int = playing.curFrame + by;
+
+    // Round the ends rather than stopping at them: stepping back from the
+    // first frame to see how an animation lands is the usual reason to be
+    // holding the button at all.
+    if (to < 0) to = playing.numFrames - 1;
+    if (to >= playing.numFrames) to = 0;
+
+    playing.curFrame = to;
+
+    refreshFrameLabel();
+  }
+
+  /**
+   * Say which frame is showing.
+   *
+   * Counted from one, because the numbers in a sheet's own file are the
+   * thing this is read against and those start at one.
+   */
+  function refreshFrameLabel():Void
+  {
+    if (frameLabel == null) return;
+
+    var playing = character?.animation?.curAnim;
+    var say:String = playing == null ? 'No frames' : 'Frame ${playing.curFrame + 1} of ${playing.numFrames}';
+
+    // Only when it has actually changed. This runs every frame, and handing
+    // a component text it already has still marks it for laying out again.
+    if (frameLabel.text != say) frameLabel.text = say;
+  }
+
   function replayAnimation():Void
   {
     if (character == null || animationName == '') return;
@@ -1846,6 +2019,9 @@ class CharacterEditorState extends MusicBeatState
       animationDropdown.dataSource.add({text: name});
 
     populating = false;
+
+    // The list on screen names the same animations this does.
+    refreshAnimList();
   }
 
   /**
@@ -1888,6 +2064,7 @@ class CharacterEditorState extends MusicBeatState
     character.playAnimation(name, true);
 
     refreshAnimationWarning();
+    refreshAnimList();
 
     // The animation window is showing one animation's worth of the file, and
     // which animation that is has just changed.
@@ -2340,6 +2517,223 @@ class CharacterEditorState extends MusicBeatState
    * the sum is done here once rather than being carried by a sprite that
    * does not know about offsets.
    */
+  // -- the reference layer ------------------------------------------------
+
+  /**
+   * How wide the camera crosshair is drawn, and how thick its arms are.
+   *
+   * In world pixels rather than screen ones, so it stays the size of the
+   * thing it is marking as the view zooms rather than the size of a finger.
+   */
+  static final CROSSHAIR_SIZE:Int = 48;
+
+  static final CROSSHAIR_ARM:Int = 4;
+
+  static final CROSSHAIR_COLOR:FlxColor = 0xFFFF3B6B;
+
+  /**
+   * How dark the outlines are, and how much of them shows.
+   */
+  static final SILHOUETTE_ALPHA:Float = 0.25;
+
+  /**
+   * The lime Psych's editor picks the playing animation out in, kept because
+   * it is what anyone coming from that editor will be looking for.
+   */
+  static final ANIM_PLAYING:FlxTextFormat = new FlxTextFormat(FlxColor.LIME);
+
+  /**
+   * Build the things drawn to be looked at rather than used.
+   *
+   * All of it starts hidden and each has a row under View: someone who wants
+   * a bare stage should be able to have one.
+   */
+  function buildReferenceLayer():Void
+  {
+    animList = new FlxText(SCREEN_INSET, menubarHeight + 16, 460, '');
+    animList.setFormat(Paths.font('vcr.ttf'), 20, FlxColor.WHITE, LEFT, OUTLINE, FlxColor.BLACK);
+    animList.scrollFactor.set(0, 0);
+    animList.cameras = [camUI];
+    animList.visible = false;
+    add(animList);
+
+    var cross = new FlxSprite();
+    cross.makeGraphic(CROSSHAIR_SIZE, CROSSHAIR_SIZE, FlxColor.TRANSPARENT, true);
+    FlxSpriteUtil.drawRect(cross, 0, (CROSSHAIR_SIZE - CROSSHAIR_ARM) / 2, CROSSHAIR_SIZE, CROSSHAIR_ARM, CROSSHAIR_COLOR);
+    FlxSpriteUtil.drawRect(cross, (CROSSHAIR_SIZE - CROSSHAIR_ARM) / 2, 0, CROSSHAIR_ARM, CROSSHAIR_SIZE, CROSSHAIR_COLOR);
+    cross.cameras = [camStage];
+    cross.visible = false;
+    cameraPoint = cross;
+    add(cameraPoint);
+  }
+
+  /**
+   * Stand the other two slots up as outlines, or take them down.
+   *
+   * The real characters rather than a picture of them, put up through the
+   * stage so that they land where the stage says and at the scale the stage
+   * says -- which is the whole point of having them there.
+   */
+  function showSilhouettes(on:Bool):Void
+  {
+    dropSilhouettes();
+
+    if (!on || stage == null || character == null) return;
+
+    var slots:Array<CharacterType> = [BF, DAD, GF];
+
+    for (slot in slots)
+    {
+      if (slot == characterType) continue;
+
+      var id:String = switch (slot)
+      {
+        case DAD: 'dad';
+        case GF: 'gf';
+        default: Constants.DEFAULT_CHARACTER;
+      };
+
+      var outline:Null<BaseCharacter> = CharacterDataParser.fetchCharacter(id, true);
+
+      if (outline == null) continue;
+
+      outline.cameras = [camStage];
+      stage.addCharacter(outline, slot);
+
+      // After the stage, which resets the character as it places it.
+      outline.color = FlxColor.BLACK;
+      outline.alpha = SILHOUETTE_ALPHA;
+
+      // Nothing here should be dancing: an outline that moves is something
+      // to watch rather than something to measure against.
+      outline.active = false;
+
+      silhouettes.push(outline);
+    }
+
+    // The character being edited stays on top of its own scenery.
+    stage.refresh();
+  }
+
+  /**
+   * Take the outlines down.
+   *
+   * Only ever removes them from the stage they were added to, so a stage
+   * already destroyed takes them with it and this has nothing left to do.
+   */
+  function dropSilhouettes():Void
+  {
+    for (outline in silhouettes)
+    {
+      if (stage != null) stage.remove(outline, true);
+      outline.destroy();
+    }
+
+    silhouettes = [];
+  }
+
+  /**
+   * Work out how much the stage moves the camera point on its own.
+   *
+   * Called once the character is standing, while the point the stage arrived
+   * at is still untouched: the difference between it and what the
+   * character's own offsets ask for is the stage's share, and it stays the
+   * same however the offsets are edited afterwards.
+   */
+  function measureStageCamera():Void
+  {
+    stageCameraOffset.set(0, 0);
+
+    if (character == null || data == null) return;
+
+    var own = ownCameraPoint();
+    stageCameraOffset.set(character.cameraFocusPoint.x - own.x, character.cameraFocusPoint.y - own.y);
+    own.put();
+  }
+
+  /**
+   * Where the character's own numbers say the camera should look.
+   *
+   * The same sum the character does when it is built, done here against the
+   * file being edited rather than against the copy the character was built
+   * from -- which is what lets the crosshair follow a stepper.
+   */
+  function ownCameraPoint():FlxPoint
+  {
+    var point = FlxPoint.get();
+
+    if (character == null) return point;
+
+    var offsets = data?.cameraOffsets ?? [0.0, 0.0];
+
+    point.set(character.originalPosition.x + character.width / 2 + pairValue(offsets, 0),
+      character.originalPosition.y + character.height / 2 + pairValue(offsets, 1));
+
+    return point;
+  }
+
+  /**
+   * Put the crosshair where the camera would look.
+   */
+  function refreshCameraPoint():Void
+  {
+    if (cameraPoint == null) return;
+
+    // Asked for and there is something to mark. Kept here rather than in the
+    // row's handler so that a character loaded afterwards gets its crosshair
+    // without the row having to be touched again.
+    cameraPoint.visible = viewTicked('menuCameraPoint') && character != null;
+
+    if (character == null) return;
+
+    var point = ownCameraPoint();
+    cameraPoint.setPosition(point.x + stageCameraOffset.x - CROSSHAIR_SIZE / 2, point.y + stageCameraOffset.y - CROSSHAIR_SIZE / 2);
+    point.put();
+  }
+
+  /**
+   * Write out every animation, with the one playing in lime.
+   *
+   * The whole list every time rather than a line edited in place, because
+   * the highlight is a range of characters into the text and the ranges all
+   * move as soon as anything above them changes length.
+   */
+  function refreshAnimList():Void
+  {
+    if (animList == null || !animList.visible) return;
+
+    if (animationNames.length == 0)
+    {
+      animList.text = 'No animations.';
+      animList.clearFormats();
+      return;
+    }
+
+    var from:Int = -1;
+    var to:Int = -1;
+    var written:Int = 0;
+    var lines:Array<String> = [];
+
+    for (name in animationNames)
+    {
+      if (name == animationName)
+      {
+        from = written;
+        to = written + name.length;
+      }
+
+      lines.push(name);
+
+      // The newline the join will put after this one counts too.
+      written += name.length + 1;
+    }
+
+    animList.text = lines.join('\n');
+    animList.clearFormats();
+
+    if (from >= 0) animList.addFormat(ANIM_PLAYING, from, to);
+  }
+
   function showGhost(on:Bool):Void
   {
     // Whatever is standing there now goes either way: turning the ghost on
@@ -3026,6 +3420,10 @@ class CharacterEditorState extends MusicBeatState
       // Whatever that was, this may no longer be the state running.
       return;
     }
+
+    // The animation is running, so the frame under it changes without
+    // anything here asking it to.
+    refreshFrameLabel();
 
     #if mobile
     updateGestures();
