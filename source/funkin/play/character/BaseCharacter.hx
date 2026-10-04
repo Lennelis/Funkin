@@ -439,7 +439,9 @@ class BaseCharacter extends Bopper
       // for one beat, as opposed to holding it as long as the player is holding the button.
       var shouldStopSinging:Bool = (this.characterType == BF) ? !isHoldingNote() : true;
 
+      #if FLX_DEBUG
       FlxG.watch.addQuick('singTimeSec-${characterId}', singTimeSec);
+      #end
       if (holdTimer > singTimeSec && shouldStopSinging)
       {
         holdTimer = 0;
@@ -467,7 +469,9 @@ class BaseCharacter extends Bopper
       holdTimer = 0;
       // super.onBeatHit handles the regular `dance()` calls.
     }
+    #if FLX_DEBUG
     FlxG.watch.addQuick('holdTimer-${characterId}', holdTimer);
+    #end
   }
 
   public function isSinging():Bool

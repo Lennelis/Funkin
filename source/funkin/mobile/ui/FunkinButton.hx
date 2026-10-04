@@ -205,25 +205,11 @@ class FunkinButton extends FunkinSprite implements IFlxInput
           if (zone != null && zone.overlapsPoint(worldPos, true, camera)) return false;
         }
 
-        function updateTouchID():Void
-        {
-          touchID = touch.touchPointID;
-          if (buttonsTouchID.exists(touchID) && buttonsTouchID.get(touchID) != this)
-          {
-            final prevButton:Null<FunkinButton> = buttonsTouchID.get(touchID);
-
-            if (input != null && prevButton != null && prevButton.input != null && !prevButton.limitToBounds) prevButton.onOutHandler();
-          }
-          buttonsTouchID.set(touchID, this);
-
-          updateStatus(touch);
-        }
-
         if (polygon != null && polygon.length >= 6 && polygon.length % 2 == 0)
         {
           if (polygonOverlapsPoint(worldPos, false, camera))
           {
-            updateTouchID();
+            updateTouchID(touch);
             return true;
           }
         }
@@ -231,7 +217,7 @@ class FunkinButton extends FunkinSprite implements IFlxInput
         {
           if (circleOverlapsPoint(worldPos, camera))
           {
-            updateTouchID();
+            updateTouchID(touch);
             return true;
           }
         }
@@ -239,7 +225,7 @@ class FunkinButton extends FunkinSprite implements IFlxInput
         {
           if (overlapsPoint(worldPos, true, camera))
           {
-            updateTouchID();
+            updateTouchID(touch);
             return true;
           }
         }
@@ -247,6 +233,22 @@ class FunkinButton extends FunkinSprite implements IFlxInput
     }
 
     return false;
+  }
+
+  // This used to be a local function inside `checkTouchOverlap()`,
+  // which allocated a new closure for every touch, every frame.
+  function updateTouchID(touch:FlxTouch):Void
+  {
+    touchID = touch.touchPointID;
+    if (buttonsTouchID.exists(touchID) && buttonsTouchID.get(touchID) != this)
+    {
+      final prevButton:Null<FunkinButton> = buttonsTouchID.get(touchID);
+
+      if (input != null && prevButton != null && prevButton.input != null && !prevButton.limitToBounds) prevButton.onOutHandler();
+    }
+    buttonsTouchID.set(touchID, this);
+
+    updateStatus(touch);
   }
 
   function circleOverlapsPoint(point:FlxPoint, ?camera:FlxCamera):Bool

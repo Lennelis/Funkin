@@ -335,14 +335,14 @@ class Strumline extends FlxSpriteGroup
   public function mayGhostTap():Bool
   {
     // Any notes in range of the strumline.
-    if (getNotesMayHit().length > 0)
+    for (note in notes.members)
     {
-      return false;
+      if (note != null && note.alive && !note.hasBeenHit && note.mayHit) return false;
     }
     // Any hold notes in range of the strumline.
-    if (getHoldNotesHitOrMissed().length > 0)
+    for (holdNote in holdNotes.members)
     {
-      return false;
+      if (holdNote != null && holdNote.alive && (holdNote.hitNote || holdNote.missedNote)) return false;
     }
 
     // Note has been hit recently.
@@ -795,11 +795,25 @@ class Strumline extends FlxSpriteGroup
     });
   }
 
+  /**
+   * Like `getNotesOnScreen().length > 0`, but without building an array.
+   * @return `true` if any notes that haven't been hit are on screen.
+   */
+  function hasNotesOnScreen():Bool
+  {
+    for (note in notes.members)
+    {
+      if (note != null && note.alive && !note.hasBeenHit) return true;
+    }
+    return false;
+  }
+
   #if FEATURE_GHOST_TAPPING
   function updateGhostTapTimer(elapsed:Float):Void
   {
     // If it's still our turn, don't update the ghost tap timer.
-    if (getNotesOnScreen().length > 0) return;
+    // This runs every frame, so avoid `getNotesOnScreen()`, which allocates an array.
+    if (hasNotesOnScreen()) return;
 
     ghostTapTimer -= elapsed;
 
@@ -1149,17 +1163,18 @@ class Strumline extends FlxSpriteGroup
 
       noteSprite.setupNoteGraphic(noteKindStyle);
 
-      var trueScale = new FlxPoint(strumlineScale.x, strumlineScale.y);
+      var trueScaleX:Float = strumlineScale.x;
+      var trueScaleY:Float = strumlineScale.y;
       #if mobile
       if (inArrowControlSchemeMode)
       {
         final amplification:Float = (FlxG.width / FlxG.height) / (FlxG.initialWidth / FlxG.initialHeight);
-        trueScale.set(strumlineScale.x - ((FlxG.height / FlxG.width) * 0.2) * amplification,
-          strumlineScale.y - ((FlxG.height / FlxG.width) * 0.2) * amplification);
+        trueScaleX = strumlineScale.x - ((FlxG.height / FlxG.width) * 0.2) * amplification;
+        trueScaleY = strumlineScale.y - ((FlxG.height / FlxG.width) * 0.2) * amplification;
       }
       #end
 
-      noteSprite.scale.scale(trueScale.x, trueScale.y);
+      noteSprite.scale.scale(trueScaleX, trueScaleY);
       noteSprite.updateHitbox();
 
       noteSprite.direction = note.getDirection();

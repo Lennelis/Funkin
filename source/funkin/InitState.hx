@@ -270,7 +270,10 @@ class InitState extends FlxState
       #if !mobile
       funkin.util.plugins.VolumePlugin.initialize();
       #end
+      #if FLX_DEBUG
+      // The watch window only exists in debug builds, don't spend time updating it otherwise.
       funkin.util.plugins.WatchPlugin.initialize();
+      #end
       #if mobile
       funkin.util.plugins.TouchPointerPlugin.initialize();
       funkin.mobile.input.ControlsHandler.initInputTrackers();

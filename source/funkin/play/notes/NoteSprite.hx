@@ -18,6 +18,13 @@ class NoteSprite extends FunkinSprite
   var hsvShader:HSVShader;
 
   /**
+   * The note style whose frames and animations were last built onto this sprite.
+   * Lets `NoteStyle.buildNoteSprite()` skip rebuilding the animations of recycled notes.
+   */
+  @:allow(funkin.play.notes.notestyle)
+  var builtNoteStyle:Null<NoteStyle> = null;
+
+  /**
    * The strum time at which the note should be hit, in milliseconds.
    */
   public var strumTime(get, set):Float;

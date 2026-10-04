@@ -146,8 +146,10 @@ class MusicBeatSubState extends FlxSubState implements IEventHandler
     }
 
     // Display Conductor info in the watch window.
+    #if FLX_DEBUG
     FlxG.watch.addQuick('musicTime', FlxG.sound.music?.time ?? 0.0);
     Conductor.watchQuick(conductorInUse);
+    #end
 
     dispatchEvent(new UpdateScriptEvent(elapsed));
   }

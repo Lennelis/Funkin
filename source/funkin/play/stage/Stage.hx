@@ -675,31 +675,18 @@ class Stage extends FlxSpriteGroup implements IPlayStateScriptedClass implements
    */
   public function dispatchToCharacters(event:ScriptEvent):Void
   {
-    var charList = this.characters.keys().array();
+    // This runs for every event (including every frame's update), so avoid building and searching a list of IDs.
+    // dispatchToCharacter() does nothing if the character doesn't exist.
 
     // Dad, then BF, then GF, in that order.
-
-    if (charList.contains('dad'))
-    {
-      dispatchToCharacter('dad', event);
-      charList.remove('dad');
-    }
-
-    if (charList.contains('bf'))
-    {
-      dispatchToCharacter('bf', event);
-      charList.remove('bf');
-    }
-
-    if (charList.contains('gf'))
-    {
-      dispatchToCharacter('gf', event);
-      charList.remove('gf');
-    }
+    dispatchToCharacter('dad', event);
+    dispatchToCharacter('bf', event);
+    dispatchToCharacter('gf', event);
 
     // Then the rest of the characters, if any.
-    for (characterId in charList)
+    for (characterId in this.characters.keys())
     {
+      if (characterId == 'dad' || characterId == 'bf' || characterId == 'gf') continue;
       dispatchToCharacter(characterId, event);
     }
   }

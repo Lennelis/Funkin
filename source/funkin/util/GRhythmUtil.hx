@@ -60,26 +60,32 @@ class GRhythmUtil
     };
   }
 
+  // `processWindow()` runs for every note on screen, every frame.
+  // These are shared so it doesn't allocate a new result each time. Don't modify them!
+  static final RESULT_SKIP:HitWindowRes = {botplayHit: false, cont: false};
+  static final RESULT_CONTINUE:HitWindowRes = {botplayHit: false, cont: true};
+  static final RESULT_BOTPLAY_HIT:HitWindowRes = {botplayHit: true, cont: true};
+
   /**
    * Process the hit window for a note.
    * @param note The note to process.
    * @param isControlled True if the note is controlled by the player, false otherwise.
+   * @param inUseConductor The conductor to use. Defaults to `Conductor.instance`.
    * @return A HitWindowRes object containing the result of the hit window check.
+   *   The result is shared between calls, so read it right away and don't modify it.
    */
   public static function processWindow(note:NoteSprite, isControlled:Bool = true, ?inUseConductor:Conductor):HitWindowRes
   {
     if (inUseConductor == null) inUseConductor = Conductor.instance;
 
-    var window:HitWindow = getHitWindow(note);
-
-    var windowStart:Float = window.start;
-    var windowCenter:Float = window.center;
-    var windowEnd:Float = window.end;
-
     if (note.hasMissed || note.hasBeenHit)
     {
-      return {botplayHit: false, cont: false};
+      return RESULT_SKIP;
     }
+
+    var windowCenter:Float = note.strumTime;
+    var windowStart:Float = windowCenter - Constants.HIT_WINDOW_MS;
+    var windowEnd:Float = windowCenter + Constants.HIT_WINDOW_MS;
 
     // Treat notes as not in window if they are greater or less than the hit window
     if (inUseConductor.songPosition > windowEnd)
@@ -88,11 +94,11 @@ class GRhythmUtil
       note.hasMissed = true;
       note.mayHit = false;
       if (note.holdNoteSprite != null) note.holdNoteSprite.missedNote = true;
-      return {botplayHit: false, cont: true};
+      return RESULT_CONTINUE;
     }
 
     // Check if we're not being controlled (ie, botplay/opponent)
-    if (!isControlled && inUseConductor.songPosition >= windowCenter) return {botplayHit: true, cont: true};
+    if (!isControlled && inUseConductor.songPosition >= windowCenter) return RESULT_BOTPLAY_HIT;
 
     if (note.holdNoteSprite != null) note.holdNoteSprite.missedNote = false;
 
@@ -101,14 +107,14 @@ class GRhythmUtil
       note.tooEarly = false;
       note.hasMissed = false;
       note.mayHit = true;
-      return {botplayHit: false, cont: true};
+      return RESULT_CONTINUE;
     }
 
     note.tooEarly = true;
     note.mayHit = false;
     note.hasMissed = false;
 
-    return {botplayHit: false, cont: true};
+    return RESULT_CONTINUE;
   }
 
   /**

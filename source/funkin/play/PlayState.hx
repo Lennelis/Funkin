@@ -1227,12 +1227,14 @@ class PlayState extends MusicBeatSubState
       camHUD.zoom = FlxMath.lerp(defaultHUDCameraZoom, camHUD.zoom, Math.pow(decayRate, dt));
     }
 
+    #if FLX_DEBUG
     if (currentStage != null && currentStage.getBoyfriend() != null)
     {
       FlxG.watch.addQuick('bfAnim', currentStage.getBoyfriend().getCurrentAnimation());
     }
     FlxG.watch.addQuick('health', health);
     FlxG.watch.addQuick('cameraBopIntensity', cameraBopIntensity);
+    #end
 
     // Handle player death.
     if (!isInCutscene && !disableKeys)
@@ -2742,11 +2744,27 @@ class PlayState extends MusicBeatSubState
     vocals.play(false, timeToPlayAt);
   }
 
+  // What the score text was last built from, so `updateScoreText()` can skip rebuilding it.
+  var scoreTextLastScore:Float = Math.NaN;
+  var scoreTextLastNegative:Bool = false;
+  var scoreTextLastBotPlay:Bool = false;
+  var scoreTextLastText:Null<String> = null;
+
   /**
      * Updates the position and contents of the score display.
      */
   function updateScoreText():Void
   {
+    // This runs every frame, and formatting the score allocates a bunch of strings,
+    // so only rebuild the text when what it displays would actually change.
+    // The score is displayed without decimals, so only the whole number part matters.
+    var flooredScore:Float = Math.ffloor(Math.abs(songScore));
+    var isNegative:Bool = songScore < 0;
+    if (scoreTextLastText != null
+      && scoreText.text == scoreTextLastText
+      && isBotPlayMode == scoreTextLastBotPlay
+      && (isBotPlayMode || (flooredScore == scoreTextLastScore && isNegative == scoreTextLastNegative))) return;
+
     // TODO: Add functionality for modules to update the score text.
     if (isBotPlayMode)
     {
@@ -2758,6 +2776,11 @@ class PlayState extends MusicBeatSubState
       final COMMA_SEPARATED:Bool = true;
       scoreText.text = 'Score: ${FlxStringUtil.formatMoney(songScore, SHOW_DECIMALS, COMMA_SEPARATED)}';
     }
+
+    scoreTextLastScore = flooredScore;
+    scoreTextLastNegative = isNegative;
+    scoreTextLastBotPlay = isBotPlayMode;
+    scoreTextLastText = scoreText.text;
   }
 
   /**

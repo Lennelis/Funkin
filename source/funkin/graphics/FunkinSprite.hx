@@ -803,10 +803,14 @@ class FunkinSprite extends FlxAnimate
 
   override public function draw():Void
   {
-    for (filter in filters ?? [])
+    // Don't use `filters ?? []` here, it allocates a new array for every sprite every frame.
+    if (filters != null)
     {
-      @:privateAccess
-      if (filter.__renderDirty) _renderTextureDirty = true;
+      for (filter in filters)
+      {
+        @:privateAccess
+        if (filter.__renderDirty) _renderTextureDirty = true;
+      }
     }
 
     super.draw();

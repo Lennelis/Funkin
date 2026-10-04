@@ -82,7 +82,22 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
       throw 'Could not load spritesheet for note style: $id';
     }
 
-    target.frames = atlas;
+    // Note sprites get recycled, and they usually already have this style's frames and animations.
+    // Setting `frames` destroys every animation, which then have to be rebuilt from the spritesheet,
+    // so only do that if the style or the spritesheet changed.
+    var needsRebuild:Bool = target.frames != atlas || target.builtNoteStyle != this;
+
+    if (needsRebuild)
+    {
+      target.frames = atlas;
+    }
+    else
+    {
+      // Do what setting `frames` would have done otherwise:
+      // stop the current animation so the next one starts from the beginning, and go back to the first frame.
+      target.animation.stop();
+      target.animation.frameIndex = 0;
+    }
 
     target.antialiasing = !(_data.assets?.note?.isPixel ?? false);
 
@@ -90,7 +105,11 @@ class NoteStyle implements IRegistryEntry<NoteStyleData>
     target.offset.set(noteOffsets[0], noteOffsets[1]);
 
     // Apply the animations.
-    buildNoteAnimations(target);
+    if (needsRebuild)
+    {
+      buildNoteAnimations(target);
+      target.builtNoteStyle = this;
+    }
 
     // Set the scale.
     var scale = getNoteScale();
