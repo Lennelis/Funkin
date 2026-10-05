@@ -1,0 +1,125 @@
+# Typecheck config for an Android release build. Used by .github/workflows/compile-check.yml.
+#
+# This stands in for what `lime display android -release` would print, which needs Lime's
+# native library, and a Git install of Lime doesn't come with one. Run from the project
+# root with `haxe .github/compile-check/android.hxml`.
+#
+# The feature flags below mirror configureFeatureFlags() in project.hxp. Every FeatureFlag
+# there has to appear here as either `-D NAME` or `-D NO_NAME`; the workflow fails if one
+# is missing, so a new flag can't silently go unchecked.
+
+-lib lime
+-lib openfl
+-lib flixel
+-lib flixel-addons
+-lib polymod
+-lib flixel-animate
+-lib json2object
+-lib jsonpath
+-lib jsonpatch
+-lib thx.core
+-lib thx.semver
+-lib hxvlc
+-lib extension-androidtools
+-lib newgrounds
+-lib funkin.vis
+-lib grig.audio
+-lib FlxPartialSound
+-lib extension-haptics
+-lib extension-iarcore
+-lib extension-webviewcore
+-lib extension-agesignals
+-cp source
+-D android
+-D mobile
+-D native
+-D lime-native
+-D lime-cffi
+-D lime-opengles
+-D lime-openal
+-D lime-harfbuzz
+-D lime-vorbis
+-D lime-curl
+-D lime-cairo
+-D openfl-native
+-D openfl-funkin
+-D lime-funkin
+-D lime-threads
+-D lime-threads-deque
+-D openfl-has-default-fonts
+--remap flash:openfl
+--macro flixel.system.macros.FlxDefines.run()
+-D HXCPP_ARM64
+-D release
+-D FLX_NO_DEBUG
+-D analyzer-optimize
+-D FLX_NO_FOCUS_LOST_SCREEN
+-D funkin=0.8.7
+-D openfl-enable-handle-error
+-D lime_disable_assets_version
+-D HXCPP_CHECK_POINTER
+-D HXCPP_STACK_LINE
+-D HXCPP_STACK_TRACE
+-D hscriptPos
+-D HARDCODED_CREDITS
+-D UNLOCK_EVERYTHING
+-D PRELOAD_ALL
+-D CENSOR_EXPLETIVES
+-D FORCE_BLEND_SHADER
+-D FEATURE_FUNKVIS
+-D FEATURE_LOG_TRACE
+-D FEATURE_NAUGHTYNESS
+-D FEATURE_OPEN_URL
+-D FEATURE_PARTIAL_SOUNDS
+-D FEATURE_POLYMOD_MODS
+-D FEATURE_VIDEO_PLAYBACK
+-D FEATURE_VIDEO_SUBTITLES
+-D FEATURE_NEWGROUNDS
+-D FEATURE_NEWGROUNDS_EVENTS
+-D FEATURE_LAG_ADJUSTMENT
+-D FEATURE_HAPTICS
+-D FEATURE_TOUCH_CONTROLS
+-D FEATURE_MOBILE_IAR
+-D FEATURE_MOBILE_WEBVIEW
+-D FEATURE_MOBILE_AGESIGNALS
+-D FEATURE_GHOST_TAPPING
+-D FEATURE_COMPRESSED_TEXTURES
+-D POLYMOD_SCRIPT_EXT=.hscript
+-D POLYMOD_SCRIPT_LIBRARY=scripts
+-D POLYMOD_ROOT_PATH=scripts/
+-D POLYMOD_APPEND_FOLDER=_append
+-D POLYMOD_MERGE_FOLDER=_merge
+-D POLYMOD_MOD_METADATA_FILE=_polymod_meta.json
+-D POLYMOD_MOD_ICON_FILE=_polymod_icon.png
+-D NO_EMBED_ASSETS
+-D NO_EXCLUDE_ARMV7
+-D NO_GITHUB_BUILD
+-D NO_REDIRECT_ASSETS_FOLDER
+-D NO_TESTING_ADS
+-D NO_FEATURE_DEBUG_FUNCTIONS
+-D NO_FEATURE_RESULTS_DEBUG
+-D NO_FEATURE_DEBUG_TRACY
+-D NO_FEATURE_DISCORD_RPC
+-D NO_FEATURE_LOST_FOCUS_VOLUME
+-D NO_FEATURE_FILE_DROP
+-D NO_FEATURE_DEBUG_FILE_LOGGING
+-D NO_FEATURE_MOBILE_ADVERTISEMENTS
+-D NO_FEATURE_MOBILE_IAP
+-D NO_FEATURE_NEWGROUNDS_AUTOLOGIN
+-D NO_FEATURE_NEWGROUNDS_DEBUG
+-D NO_FEATURE_NEWGROUNDS_TESTING_MEDALS
+-D NO_FEATURE_SCREENSHOTS
+-D NO_FEATURE_HAXEUI
+-D NO_FEATURE_DEBUG_MENU
+-D NO_FEATURE_ANIMATION_EDITOR
+-D NO_FEATURE_CHART_EDITOR
+-D NO_FEATURE_STAGE_EDITOR
+-D NO_FEATURE_TOUCH_HERE_TO_PLAY
+-D NO_FEATURE_DEBUG_DISPLAY
+-dce no
+--macro addMetadata('@:build(funkin.util.macro.FlxMacro.buildFlxBasic())', 'flixel.FlxBasic')
+--macro addMetadata('@:build(funkin.util.macro.FlxMacro.buildFlxSprite())', 'flixel.FlxSprite')
+--macro include('funkin', true, ['funkin.ui.debug.anim.*', 'funkin.ui.debug.charting.*', 'funkin.ui.debug.stage.*', 'funkin.ui.debug.stageeditor.*', 'funkin.ui.haxeui.*'])
+--main Main
+-cpp out
+--no-output

@@ -1,0 +1,136 @@
+# Typecheck config for a desktop (Linux) debug build, including the chart, stage and
+# animation editors. Used by .github/workflows/compile-check.yml.
+#
+# This stands in for what `lime display linux -debug` would print, which needs Lime's
+# native library, and a Git install of Lime doesn't come with one. Run from the project
+# root with `haxe .github/compile-check/desktop.hxml`.
+#
+# The feature flags below mirror configureFeatureFlags() in project.hxp. Every FeatureFlag
+# there has to appear here as either `-D NAME` or `-D NO_NAME`; the workflow fails if one
+# is missing, so a new flag can't silently go unchecked.
+
+-lib lime
+-lib openfl
+-lib flixel
+-lib flixel-addons
+-lib polymod
+-lib flixel-animate
+-lib json2object
+-lib haxeui-core
+-lib haxeui-flixel
+-lib hxgamemode
+-lib jsonpath
+-lib jsonpatch
+-lib thx.core
+-lib thx.semver
+-lib hxvlc
+-lib newgrounds
+-lib funkin.vis
+-lib grig.audio
+-lib FlxPartialSound
+-cp source
+-D native
+-D linux
+-D desktop
+-D lime-opengl
+-D debug
+-D FEATURE_DEBUG_FUNCTIONS
+-D FEATURE_RESULTS_DEBUG
+-D FEATURE_DEBUG_FILE_LOGGING
+-D FEATURE_NEWGROUNDS_TESTING_MEDALS
+-D FEATURE_DEBUG_MENU
+-D FEATURE_ANIMATION_EDITOR
+-D FEATURE_CHART_EDITOR
+-D FEATURE_STAGE_EDITOR
+-D FEATURE_HAXEUI
+-D FEATURE_SCREENSHOTS
+-D FEATURE_FILE_DROP
+-D FEATURE_LOST_FOCUS_VOLUME
+-D FEATURE_DEBUG_DISPLAY
+-D REDIRECT_ASSETS_FOLDER
+-D haxeui_no_mouse_reset
+-D haxeui_focus_out_on_click
+-D haxeui_dont_impose_base_class
+-D lime-native
+-D lime-cffi
+-D lime-openal
+-D lime-harfbuzz
+-D lime-vorbis
+-D lime-curl
+-D lime-cairo
+-D openfl-native
+-D openfl-funkin
+-D lime-funkin
+-D lime-threads
+-D lime-threads-deque
+-D openfl-has-default-fonts
+--remap flash:openfl
+--macro flixel.system.macros.FlxDefines.run()
+-D FLX_NO_FOCUS_LOST_SCREEN
+-D funkin=0.8.7
+-D openfl-enable-handle-error
+-D lime_disable_assets_version
+-D HXCPP_CHECK_POINTER
+-D HXCPP_STACK_LINE
+-D HXCPP_STACK_TRACE
+-D hscriptPos
+-D HARDCODED_CREDITS
+-D UNLOCK_EVERYTHING
+-D PRELOAD_ALL
+-D FEATURE_FUNKVIS
+-D FEATURE_LOG_TRACE
+-D FEATURE_NAUGHTYNESS
+-D FEATURE_OPEN_URL
+-D FEATURE_PARTIAL_SOUNDS
+-D FEATURE_POLYMOD_MODS
+-D FEATURE_VIDEO_PLAYBACK
+-D FEATURE_VIDEO_SUBTITLES
+-D FEATURE_NEWGROUNDS
+-D FEATURE_NEWGROUNDS_EVENTS
+-D FEATURE_LAG_ADJUSTMENT
+-D POLYMOD_SCRIPT_EXT=.hscript
+-D POLYMOD_SCRIPT_LIBRARY=scripts
+-D POLYMOD_ROOT_PATH=scripts/
+-D POLYMOD_APPEND_FOLDER=_append
+-D POLYMOD_MERGE_FOLDER=_merge
+-D POLYMOD_MOD_METADATA_FILE=_polymod_meta.json
+-D POLYMOD_MOD_ICON_FILE=_polymod_icon.png
+-D NO_CENSOR_EXPLETIVES
+-D NO_EMBED_ASSETS
+-D NO_EXCLUDE_ARMV7
+-D NO_FORCE_BLEND_SHADER
+-D NO_GITHUB_BUILD
+-D NO_TESTING_ADS
+-D NO_FEATURE_COMPRESSED_TEXTURES
+-D NO_FEATURE_DEBUG_TRACY
+-D NO_FEATURE_DISCORD_RPC
+-D NO_FEATURE_GHOST_TAPPING
+-D NO_FEATURE_HAPTICS
+-D NO_FEATURE_MOBILE_ADVERTISEMENTS
+-D NO_FEATURE_MOBILE_IAP
+-D NO_FEATURE_MOBILE_IAR
+-D NO_FEATURE_MOBILE_WEBVIEW
+-D NO_FEATURE_MOBILE_AGESIGNALS
+-D NO_FEATURE_NEWGROUNDS_AUTOLOGIN
+-D NO_FEATURE_NEWGROUNDS_DEBUG
+-D NO_FEATURE_TOUCH_CONTROLS
+-D NO_FEATURE_TOUCH_HERE_TO_PLAY
+-dce no
+--macro addMetadata('@:build(funkin.util.macro.FlxMacro.buildFlxBasic())', 'flixel.FlxBasic')
+--macro addMetadata('@:build(funkin.util.macro.FlxMacro.buildFlxSprite())', 'flixel.FlxSprite')
+--macro include('funkin', true, ['funkin.mobile.*', 'funkin.ui.debug.anim.*', 'funkin.ui.debug.charting.*', 'funkin.ui.debug.stage.*', 'funkin.ui.debug.stageeditor.*', 'funkin.ui.haxeui.*'])
+--macro include('funkin.ui.debug.anim')
+--macro include('funkin.ui.debug.charting')
+--macro include('funkin.ui.debug.stage')
+--macro include('funkin.ui.debug.stageeditor')
+--macro include('funkin.ui.haxeui')
+--macro include('haxe.ui.backend.flixel.components')
+--macro include('haxe.ui.core')
+--macro include('haxe.ui.components')
+--macro include('haxe.ui.containers')
+--macro include('haxe.ui.containers.dialogs')
+--macro include('haxe.ui.containers.menus')
+--macro include('haxe.ui.containers.properties')
+--main Main
+-cpp out
+--no-output

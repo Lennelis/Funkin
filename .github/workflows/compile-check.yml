@@ -1,0 +1,115 @@
+# Typechecks the game on a GitHub-hosted runner.
+#
+# build-game.yml can't run in this fork. Its jobs ask for `runs-on: build-set` (and
+# `windows`, and `macos`), which are labels on FunkinCrew's own self-hosted machines, so
+# they queue until GitHub gives up on them.
+#
+# This runs the whole Haxe front end (every macro, every type) over the game, without
+# handing anything to C++. That takes minutes rather than most of an hour, and catches the
+# mistakes worth catching early. It does NOT check that native libraries link.
+#
+# It doesn't use `lime display` to get the build config, because that needs Lime's native
+# library and a Git install of Lime doesn't come with one. The configs live in
+# .github/compile-check/ instead, and a step below fails if they fall out of step with the
+# feature flags in project.hxp.
+
+name: Compile check
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: compile-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: typecheck (${{ matrix.config }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # android: a mobile release build, with the touch controls and mobile-only code.
+        # desktop: a desktop debug build, with the chart, stage and animation editors.
+        config: [android, desktop]
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+
+      # The compile-time macros only read the `data` folders of the assets (song/stage/etc.
+      # registries, credits, the editors' UI layouts), which is a few MB out of more than a GB.
+      - name: Fetch the assets the compiler reads
+        run: |
+          url=$(git config -f .gitmodules submodule.assets.url)
+          sha=$(git ls-tree HEAD assets | awk '{print $3}')
+          git -C assets init -q
+          git -C assets remote add origin "$url"
+          git -C assets sparse-checkout set --no-cone '/*/data/'
+          git -C assets fetch -q --depth 1 --filter=blob:none origin "$sha"
+          git -C assets checkout -q FETCH_HEAD
+
+      - name: Check the configs match project.hxp
+        run: |
+          version=$(grep -oP 'static final VERSION:String = "\K[^"]+' project.hxp)
+          flags=$(grep -oP 'static final \K\w+(?=:FeatureFlag)' project.hxp)
+          hxml=.github/compile-check/${{ matrix.config }}.hxml
+          failed=0
+
+          if ! grep -qx -- "-D funkin=$version" "$hxml"; then
+            echo "::error file=$hxml::project.hxp says the version is $version; update the -D funkin= line to match."
+            failed=1
+          fi
+
+          for flag in $flags; do
+            if ! grep -qxE -- "-D (NO_)?$flag" "$hxml"; then
+              echo "::error file=$hxml::$flag is a feature flag in project.hxp, but this config doesn't set it either way. Add -D $flag or -D NO_$flag."
+              failed=1
+            fi
+          done
+
+          exit $failed
+
+      - name: Install Haxe
+        uses: funkincrew/ci-haxe@v3.2.7
+        with:
+          haxe-version: 4.3.7
+
+      # The game needs FunkinCrew's forks of both: hmm.json uses fields their hmm
+      # understands, and haxelib is patched to go with it. This is lifted from
+      # .github/actions/setup-haxe, which can't be reused as-is because it assumes it is
+      # root inside their container and calls apt without sudo.
+      - name: Set up haxelib and hmm
+        run: |
+          haxelib fixrepo --global || true
+          haxelib --never --global install haxelib 4.1.0
+          haxelib --global set haxelib 4.1.0
+          haxelib --global remove haxelib git || true
+          haxelib --global remove hmm || true
+          rm -rf .haxelib
+          haxelib --never --global git haxelib https://github.com/FunkinCrew/haxelib.git funkin-patches --skip-dependencies
+          haxelib --never --global git hmm https://github.com/FunkinCrew/hmm funkin-patches
+          haxelib --never newrepo
+          haxelib version
+
+      - name: Restore cached dependencies
+        id: cache-hmm
+        uses: actions/cache@v4
+        with:
+          path: .haxelib
+          key: haxe-hmm-${{ runner.os }}-${{ hashFiles('hmm.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-hmm.outputs.cache-hit != 'true'
+        run: haxelib --global run hmm install -q
+
+      # Only read for API keys, which a typecheck has no use for.
+      - name: Create an empty .env
+        run: touch .env
+
+      - name: Typecheck
+        run: haxe .github/compile-check/${{ matrix.config }}.hxml
