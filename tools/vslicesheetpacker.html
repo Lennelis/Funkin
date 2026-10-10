@@ -708,6 +708,11 @@
   .frame-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    /* The thumbnail is a canvas at width:100%, which contributes almost
+       nothing to a row's min-content height -- and an auto row in a grid this
+       tall resolves that way, collapsing every card onto its min-height and
+       hiding the picture under the row below. */
+    grid-auto-rows: max-content;
     gap: 10px;
     padding: 14px 20px;
     overflow-y: auto;
@@ -738,11 +743,13 @@
   .frame-thumb {
     display: block;
     width: 100%;
-    /* The thumbnail canvas is square and the frame is already letterboxed
-       inside it, so the box has to stay square too -- a fixed height stretches
-       whatever was drawn. */
+    /* The canvas is square with the frame already letterboxed inside it, so a
+       fixed height would stretch whatever was drawn. Its own 96x96 intrinsic
+       ratio sizes it instead: aspect-ratio cannot, because the height would
+       then depend on the width, which depends on the card, which depends on
+       its content -- and a card that cannot measure its own thumbnail
+       collapses onto its min-height and spills the picture over the next row. */
     height: auto;
-    aspect-ratio: 1;
     border-radius: 4px;
     background-color: #211B2E;
     background-image:
@@ -894,6 +901,14 @@
             <code>&lt;name&gt;0000</code>, <code>&lt;name&gt;0001</code> and so on.</p>
 
           <div class="field">
+            <label for="ss-a-indices">indices</label>
+            <input type="text" id="ss-a-indices" spellcheck="false" placeholder="0-23">
+          </div>
+          <p class="hint" id="ss-a-indices-note">Which of this animation's frames to use, and in
+            what order. <code>0-5</code> for a run, <code>0, 2, 4</code> to pick, <code>5-0</code>
+            to go backwards. Empty means all of them.</p>
+
+          <div class="field">
             <label for="ss-a-fps">preview fps</label>
             <input type="number" id="ss-a-fps" step="1" min="1" value="24">
           </div>
@@ -974,7 +989,8 @@
       <div class="btn-row">
         <button class="btn" id="ss-copy" type="button">Copy XML</button>
         <button class="btn" id="ss-save-xml" type="button" hidden>Save .xml</button>
-        <button class="btn btn-primary" id="ss-save-png" type="button" hidden>Save .png</button>
+        <button class="btn" id="ss-save-png" type="button" hidden>Save .png</button>
+        <button class="btn btn-primary" id="ss-save-zip" type="button" hidden>Save .zip</button>
       </div>
     </div>
     <div class="drawer-body">
@@ -1095,6 +1111,83 @@
   }
 
   function sheetName() { return slug(state.name) || suggestedName(); }
+
+  var RANGE = /^(\d+)\s*(?:\.\.|-|\u2013|\u2014)\s*(\d+)$/;
+
+  /** "0-5, 8" to [0,1,2,3,4,5,8]. A range counts down as readily as up. */
+  function parseIndices(text, max) {
+    var out = [];
+
+    String(text || "").split(",").forEach(function (part) {
+      var piece = part.trim();
+      if (!piece) return;
+
+      var range = RANGE.exec(piece);
+
+      if (range) {
+        var from = Number(range[1]);
+        var to = Number(range[2]);
+
+        // A typo like 0-99999 should not try to build a list that long.
+        if (Math.abs(to - from) > 4096) return;
+
+        for (var i = from; ; i += (from <= to ? 1 : -1)) {
+          if (i >= 0 && i < max) out.push(i);
+          if (i === to) break;
+        }
+        return;
+      }
+
+      if (/^\d+$/.test(piece)) {
+        var one = Number(piece);
+        if (one >= 0 && one < max) out.push(one);
+      }
+    });
+
+    return out;
+  }
+
+  /** The inverse, collapsing runs of three or more so the field stays short. */
+  function formatIndices(list) {
+    var parts = [];
+    var at = 0;
+
+    while (at < list.length) {
+      var end = at;
+      while (end + 1 < list.length && list[end + 1] === list[end] + 1) end++;
+
+      if (end - at >= 2) parts.push(list[at] + "-" + list[end]);
+      else for (var i = at; i <= end; i++) parts.push(String(list[i]));
+
+      at = end + 1;
+    }
+
+    return parts.join(", ");
+  }
+
+  /**
+   * Every frame the animation was built from. The indices field picks out of
+   * this rather than out of what it last left behind, so clearing the field
+   * brings the dropped frames back.
+   */
+  function animFull(anim) {
+    if (!anim.full) anim.full = anim.members.slice();
+    return anim.full;
+  }
+
+  function applyIndices(anim, text) {
+    var full = animFull(anim);
+    var picked = parseIndices(text, full.length);
+
+    anim.indices = picked.length ? picked : null;
+    anim.members = picked.length
+      ? picked.map(function (position) { return full[position]; })
+      : full.slice();
+
+    // Only recomputed when the frames are regrouped otherwise, and this is a
+    // change to which frames the animation holds.
+    anim.renumber = needsRenumbering(anim);
+  }
 
   /**
    * What to call the pair when the user has not said. FNF sheets hold every
@@ -1313,6 +1406,11 @@
 
   function needsRenumbering(anim) {
     var seen = {};
+
+    /* An indices field is a new order, and the game sorts frames by name when
+       it adds an animation by prefix -- so keeping the file's old numbers
+       would let it sort the order straight back out again. */
+    if (anim.indices) return true;
 
     return anim.members.some(function (index) {
       var frame = state.frames[index];
@@ -2269,6 +2367,12 @@
     $("ss-a-name").value = anim.name;
     $("ss-a-fps").value = anim.fps;
 
+    if (document.activeElement !== $("ss-a-indices")) {
+      $("ss-a-indices").value = anim.indices ? formatIndices(anim.indices) : "";
+    }
+
+    $("ss-a-indices").placeholder = "0-" + Math.max(0, animFull(anim).length - 1);
+
     var clash = state.anims.filter(function (other) { return other.name === anim.name; }).length > 1;
 
     $("ss-a-name-note").innerHTML = !anim.name
@@ -2843,6 +2947,16 @@
     });
   }
 
+  // Changing which frames are in an animation changes what goes on the sheet,
+  // so this one repacks rather than relabelling in place.
+  bindPacking("ss-a-indices", function (value) {
+    var anim = currentAnim();
+    if (!anim) return;
+
+    applyIndices(anim, value);
+    state.playTime = 0;
+  });
+
   bind("ss-a-fps", function (value) {
     var anim = currentAnim();
     if (!anim) return;
@@ -2988,6 +3102,7 @@
   function enableSaving(hintHtml) {
     $("ss-save-png").hidden = false;
     $("ss-save-xml").hidden = false;
+    $("ss-save-zip").hidden = false;
     $("ss-xml-hint").innerHTML = hintHtml;
   }
 
@@ -3080,6 +3195,115 @@
         reportSaveError(err);
       }
     );
+  });
+
+  /* ---- writing a zip ---------------------------------------------------
+     Stored entries, no compression: a PNG is already deflated and the XML is
+     a few kilobytes, so squeezing them buys nothing and costs a dependency. */
+
+  var CRC_TABLE = (function () {
+    var table = new Uint32Array(256);
+
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c >>> 0;
+    }
+
+    return table;
+  })();
+
+  function crc32(bytes) {
+    var c = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  /** @param entries [{ name, bytes }] @return {Blob} */
+  function makeZip(entries) {
+    var parts = [];
+    var central = [];
+    var offset = 0;
+
+    entries.forEach(function (entry) {
+      var name = new TextEncoder().encode(entry.name);
+      var sum = crc32(entry.bytes);
+      var size = entry.bytes.length;
+
+      var local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034B50, true);
+      local.setUint16(4, 20, true);          // version needed
+      local.setUint16(6, 0x0800, true);      // names are UTF-8
+      local.setUint16(8, 0, true);           // stored
+      local.setUint32(14, sum, true);
+      local.setUint32(18, size, true);
+      local.setUint32(22, size, true);
+      local.setUint16(26, name.length, true);
+
+      parts.push(new Uint8Array(local.buffer), name, entry.bytes);
+
+      var head = new DataView(new ArrayBuffer(46));
+      head.setUint32(0, 0x02014B50, true);
+      head.setUint16(4, 20, true);
+      head.setUint16(6, 20, true);
+      head.setUint16(8, 0x0800, true);
+      head.setUint16(10, 0, true);
+      head.setUint32(16, sum, true);
+      head.setUint32(20, size, true);
+      head.setUint32(24, size, true);
+      head.setUint16(28, name.length, true);
+      head.setUint32(42, offset, true);
+
+      central.push(new Uint8Array(head.buffer), name);
+      offset += 30 + name.length + size;
+    });
+
+    var directory = central.reduce(function (sum, part) { return sum + part.length; }, 0);
+
+    var end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054B50, true);
+    end.setUint16(8, entries.length, true);
+    end.setUint16(10, entries.length, true);
+    end.setUint32(12, directory, true);
+    end.setUint32(16, offset, true);
+
+    return new Blob(parts.concat(central, [new Uint8Array(end.buffer)]), { type: "application/zip" });
+  }
+
+  $("ss-save-zip").addEventListener("click", function () {
+    if (!state.sheet || state.sheet.overflow) {
+      toast("There is no packed sheet to save");
+      return;
+    }
+
+    var base = sheetName();
+
+    sheetCanvas.toBlob(function (blob) {
+      if (!blob) { toast("Couldn't render the sheet"); return; }
+
+      blob.arrayBuffer().then(function (buffer) {
+        var zip = makeZip([
+          { name: base + ".png", bytes: new Uint8Array(buffer) },
+          { name: base + ".xml", bytes: new TextEncoder().encode(buildXml()) }
+        ]);
+
+        var name = base + ".zip";
+
+        if (!downloads) {
+          saveLocally(name, zip);
+          noteSaved("png");
+          noteSaved("xml");
+          return;
+        }
+
+        zip.arrayBuffer().then(function (zipBuffer) {
+          downloads.save({ filename: name, data: new Uint8Array(zipBuffer) }).then(
+            function () { toast("Saved " + name); noteSaved("png"); noteSaved("xml"); },
+            reportSaveError
+          );
+        });
+      });
+    }, "image/png");
   });
 
   $("ss-save-png").addEventListener("click", function () {
