@@ -730,10 +730,19 @@
   .frame-card:hover { border-color: var(--accent-2); }
   .frame-card[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
 
+  .frame-card.range-start {
+    border-color: var(--accent-2);
+    box-shadow: inset 0 0 0 2px var(--accent-2);
+  }
+
   .frame-thumb {
     display: block;
     width: 100%;
-    height: 72px;
+    /* The thumbnail canvas is square and the frame is already letterboxed
+       inside it, so the box has to stay square too -- a fixed height stretches
+       whatever was drawn. */
+    height: auto;
+    aspect-ratio: 1;
     border-radius: 4px;
     background-color: #211B2E;
     background-image:
@@ -989,7 +998,9 @@
       <select id="ss-frames-filter" aria-label="Show frames from"></select>
       <button class="btn" id="ss-frames-all" type="button">Select all</button>
       <button class="btn" id="ss-frames-none" type="button">Select none</button>
+      <button class="btn" id="ss-frames-range" type="button" aria-pressed="false">Range</button>
       <span class="count"><b id="ss-frames-count">0</b> selected</span>
+      <span class="hint" id="ss-frames-hint" hidden>Tap the first frame, then the last.</span>
     </div>
 
     <div class="frame-grid" id="ss-frames-grid"></div>
@@ -2390,7 +2401,12 @@
 
   // ------------------------------------------------------------ frame browser
 
-  var browser = { selected: {}, filter: "", anchor: -1 };
+  var browser = { selected: {}, filter: "", anchor: -1, rangeMode: false, rangeStart: -1 };
+
+  // The cards currently on screen, so a selection can repaint them instead of
+  // building the whole grid again.
+  var browserCards = [];
+  var browserShown = [];
 
   function openBrowser() {
     if (!state.frames.length) {
@@ -2400,6 +2416,8 @@
 
     browser.selected = {};
     browser.anchor = -1;
+    browser.rangeMode = false;
+    browser.rangeStart = -1;
 
     // Open on whatever is selected in the rail, since that is usually the
     // animation you came here to fix.
@@ -2409,6 +2427,7 @@
     $("ss-assign-name").value = anim ? anim.name : "";
     $("ss-frames-overlay").hidden = false;
 
+    syncRangeButton();
     syncBrowser();
   }
 
@@ -2457,11 +2476,35 @@
     if (picker.value !== previous) browser.filter = picker.value;
   }
 
+  /**
+   * Flip the cards that changed. Rebuilding the grid meant a fresh canvas and
+   * a drawImage per frame on every single click, which is what made selecting
+   * anything in a big set stutter.
+   */
+  function paintBrowserSelection() {
+    browserCards.forEach(function (card, position) {
+      var index = browserShown[position];
+      card.setAttribute("aria-pressed", browser.selected[index] ? "true" : "false");
+      card.classList.toggle("range-start", browser.rangeStart === position);
+    });
+
+    syncBrowserCount();
+  }
+
+  function syncRangeButton() {
+    var button = $("ss-frames-range");
+    button.setAttribute("aria-pressed", browser.rangeMode ? "true" : "false");
+    button.classList.toggle("on", browser.rangeMode);
+    $("ss-frames-hint").hidden = !browser.rangeMode;
+  }
+
   function syncBrowserGrid() {
     var grid = $("ss-frames-grid");
     grid.innerHTML = "";
+    browserCards = [];
 
     var showing = browserFrames();
+    browserShown = showing;
 
     if (!showing.length) {
       var empty = document.createElement("p");
@@ -2499,13 +2542,25 @@
       card.appendChild(anim);
 
       card.addEventListener("click", function (event) {
-        // Shift picks the run between the last click and this one, which is
-        // how you grab a stretch of a sequence without clicking forty times.
-        if (event.shiftKey && browser.anchor >= 0) {
-          var from = Math.min(browser.anchor, position);
-          var to = Math.max(browser.anchor, position);
+        /* Range mode is the same idea as shift-clicking, for a screen with no
+           shift key: tap one end, tap the other, and the run between fills in. */
+        if (browser.rangeMode) {
+          if (browser.rangeStart < 0) {
+            browser.rangeStart = position;
+          } else {
+            selectRun(browser.rangeStart, position);
+            browser.anchor = position;
+            browser.rangeStart = -1;
+            browser.rangeMode = false;
+            syncRangeButton();
+          }
 
-          for (var i = from; i <= to; i++) browser.selected[showing[i]] = true;
+          paintBrowserSelection();
+          return;
+        }
+
+        if (event.shiftKey && browser.anchor >= 0) {
+          selectRun(browser.anchor, position);
         } else {
           if (browser.selected[index]) delete browser.selected[index];
           else browser.selected[index] = true;
@@ -2513,12 +2568,20 @@
           browser.anchor = position;
         }
 
-        syncBrowserGrid();
-        syncBrowserCount();
+        paintBrowserSelection();
       });
 
+      browserCards.push(card);
       grid.appendChild(card);
     });
+  }
+
+  /** Everything from one card to another, whichever way round they were tapped. */
+  function selectRun(a, b) {
+    var from = Math.min(a, b);
+    var to = Math.max(a, b);
+
+    for (var i = from; i <= to; i++) browser.selected[browserShown[i]] = true;
   }
 
   function selectedIndices() {
@@ -2549,21 +2612,30 @@
 
   $("ss-frames-filter").addEventListener("change", function () {
     browser.filter = this.value;
+    // Both anchors are positions in the filtered list, so they mean nothing
+    // once a different set is showing.
     browser.anchor = -1;
+    browser.rangeStart = -1;
     syncBrowserGrid();
+  });
+
+  $("ss-frames-range").addEventListener("click", function () {
+    browser.rangeMode = !browser.rangeMode;
+    browser.rangeStart = -1;
+    syncRangeButton();
+    paintBrowserSelection();
   });
 
   $("ss-frames-all").addEventListener("click", function () {
     browserFrames().forEach(function (index) { browser.selected[index] = true; });
-    syncBrowserGrid();
-    syncBrowserCount();
+    paintBrowserSelection();
   });
 
   $("ss-frames-none").addEventListener("click", function () {
     browser.selected = {};
     browser.anchor = -1;
-    syncBrowserGrid();
-    syncBrowserCount();
+    browser.rangeStart = -1;
+    paintBrowserSelection();
   });
 
   function applyAssignment(name) {
