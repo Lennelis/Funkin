@@ -915,6 +915,32 @@
           <p class="hint">Only for the <b>Play</b> view. A frame rate is not stored in the XML — the
             game sets it when it adds the animation.</p>
 
+          <div class="field">
+            <label for="ss-a-gif-bg">gif background</label>
+            <select id="ss-a-gif-bg">
+              <option value="none">transparent</option>
+              <option value="#181919">dark</option>
+              <option value="#F8F8F8">light</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="ss-a-gif-size">gif size</label>
+            <select id="ss-a-gif-size">
+              <option value="256">small — 256px</option>
+              <option value="480" selected>medium — 480px</option>
+              <option value="720">large — 720px</option>
+              <option value="0">full size</option>
+            </select>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn" type="button" id="ss-a-gif">Save .gif</button>
+          </div>
+          <p class="hint">The animation on its own, at the preview fps, looping. A GIF only gets
+            one fully transparent colour, so soft edges come out ragged — pick a background if the
+            edges matter.</p>
+
           <div class="anim-preview">
             <canvas id="ss-a-preview" width="360" height="240"
               aria-label="The selected animation, looping"></canvas>
@@ -3269,6 +3295,354 @@
 
     return new Blob(parts.concat(central, [new Uint8Array(end.buffer)]), { type: "application/zip" });
   }
+
+
+  // ------------------------------------------------------------------- gif
+
+  /**
+   * Median cut: split the colour cloud along its widest channel until there
+   * are enough boxes, then take each box's average. Good enough for sprite
+   * art, which tends to have far fewer than 256 colours to begin with.
+   */
+  function quantize(pixels, limit) {
+    var boxes = [{ list: pixels, lo: [0, 0, 0], hi: [255, 255, 255] }];
+
+    function spread(box) {
+      var lo = [255, 255, 255];
+      var hi = [0, 0, 0];
+
+      box.list.forEach(function (p) {
+        for (var c = 0; c < 3; c++) {
+          if (p[c] < lo[c]) lo[c] = p[c];
+          if (p[c] > hi[c]) hi[c] = p[c];
+        }
+      });
+
+      box.lo = lo;
+      box.hi = hi;
+      box.widest = 0;
+
+      for (var c = 1; c < 3; c++) {
+        if (hi[c] - lo[c] > hi[box.widest] - lo[box.widest]) box.widest = c;
+      }
+
+      box.range = hi[box.widest] - lo[box.widest];
+      return box;
+    }
+
+    spread(boxes[0]);
+
+    while (boxes.length < limit) {
+      // Split whichever box still covers the most ground.
+      var pick = -1;
+      for (var i = 0; i < boxes.length; i++) {
+        if (boxes[i].list.length > 1 && (pick < 0 || boxes[i].range > boxes[pick].range)) pick = i;
+      }
+      if (pick < 0) break;
+
+      var box = boxes[pick];
+      var channel = box.widest;
+
+      box.list.sort(function (a, b) { return a[channel] - b[channel]; });
+
+      var half = box.list.length >> 1;
+      if (half === 0) break;
+
+      var left = spread({ list: box.list.slice(0, half) });
+      var right = spread({ list: box.list.slice(half) });
+
+      boxes.splice(pick, 1, left, right);
+    }
+
+    return boxes.map(function (box) {
+      var sum = [0, 0, 0];
+      box.list.forEach(function (p) { sum[0] += p[0]; sum[1] += p[1]; sum[2] += p[2]; });
+
+      var n = Math.max(1, box.list.length);
+      return [Math.round(sum[0] / n), Math.round(sum[1] / n), Math.round(sum[2] / n)];
+    });
+  }
+
+  /** GIF's LZW: variable width codes, reset when the table fills. */
+  function lzwEncode(indices, minCodeSize) {
+    var clear = 1 << minCodeSize;
+    var eoi = clear + 1;
+    var codeSize = minCodeSize + 1;
+    var next = eoi + 1;
+    var dict = new Map();
+
+    var out = [];
+    var hold = 0;
+    var bits = 0;
+
+    function emit(code) {
+      hold |= code << bits;
+      bits += codeSize;
+
+      while (bits >= 8) {
+        out.push(hold & 0xFF);
+        hold >>= 8;
+        bits -= 8;
+      }
+    }
+
+    emit(clear);
+
+    var prefix = indices[0];
+
+    for (var i = 1; i < indices.length; i++) {
+      var k = indices[i];
+      var key = (prefix << 12) | k;
+
+      if (dict.has(key)) {
+        prefix = dict.get(key);
+        continue;
+      }
+
+      emit(prefix);
+
+      if (next < 4096) {
+        dict.set(key, next++);
+        // The decoder widens as soon as its own table passes the limit, so the
+        // encoder has to widen on the same entry, not the one after.
+        if (next > (1 << codeSize) && codeSize < 12) codeSize++;
+      } else {
+        emit(clear);
+        dict.clear();
+        next = eoi + 1;
+        codeSize = minCodeSize + 1;
+      }
+
+      prefix = k;
+    }
+
+    emit(prefix);
+    emit(eoi);
+
+    if (bits > 0) out.push(hold & 0xFF);
+
+    return out;
+  }
+
+  /** LZW output goes out in sub-blocks of at most 255 bytes. */
+  function pushBlocks(bytes, data) {
+    for (var at = 0; at < data.length; at += 255) {
+      var run = data.slice(at, at + 255);
+      bytes.push(run.length);
+      for (var i = 0; i < run.length; i++) bytes.push(run[i]);
+    }
+    bytes.push(0);
+  }
+
+  /**
+   * @param frames [{ data: Uint8ClampedArray }] RGBA, all the same size
+   * @param options { width, height, delay (1/100s), transparent }
+   */
+  function makeGif(frames, options) {
+    var width = options.width;
+    var height = options.height;
+    var wantsAlpha = !!options.transparent;
+    var room = wantsAlpha ? 255 : 256;
+
+    // One palette for the whole animation, so colours do not swim between
+    // frames. Sampled rather than exhaustive -- every pixel of every frame is
+    // more work than it is worth for the same answer.
+    var sample = [];
+    var step = Math.max(1, Math.floor((width * height * frames.length) / 24000));
+    var seen = 0;
+
+    frames.forEach(function (frame) {
+      for (var i = 0; i < frame.data.length; i += 4) {
+        if (frame.data[i + 3] < 128) continue;
+        if (seen++ % step) continue;
+        sample.push([frame.data[i], frame.data[i + 1], frame.data[i + 2]]);
+      }
+    });
+
+    if (!sample.length) sample.push([0, 0, 0]);
+
+    var palette = quantize(sample, room);
+    while (palette.length < 2) palette.push([0, 0, 0]);
+
+    var transparentIndex = wantsAlpha ? palette.length : -1;
+    if (wantsAlpha) palette.push([0, 0, 0]);
+
+    // Round up to a power of two: the format has no other option.
+    var bitsNeeded = Math.max(1, Math.ceil(Math.log(palette.length) / Math.LN2));
+    var slots = 1 << bitsNeeded;
+
+    var nearest = new Map();
+
+    function indexOf(r, g, b) {
+      var key = (r >> 2 << 12) | (g >> 2 << 6) | (b >> 2);
+      if (nearest.has(key)) return nearest.get(key);
+
+      var best = 0;
+      var bestCost = Infinity;
+
+      for (var i = 0; i < palette.length; i++) {
+        if (i === transparentIndex) continue;
+
+        var dr = palette[i][0] - r;
+        var dg = palette[i][1] - g;
+        var db = palette[i][2] - b;
+        var cost = dr * dr + dg * dg + db * db;
+
+        if (cost < bestCost) { bestCost = cost; best = i; }
+      }
+
+      nearest.set(key, best);
+      return best;
+    }
+
+    var bytes = [];
+
+    function word(value) { bytes.push(value & 0xFF, (value >> 8) & 0xFF); }
+
+    "GIF89a".split("").forEach(function (c) { bytes.push(c.charCodeAt(0)); });
+    word(width);
+    word(height);
+    bytes.push(0xF0 | (bitsNeeded - 1), 0, 0);
+
+    for (var i = 0; i < slots; i++) {
+      var colour = palette[i] || [0, 0, 0];
+      bytes.push(colour[0], colour[1], colour[2]);
+    }
+
+    // Netscape extension: loop forever.
+    bytes.push(0x21, 0xFF, 11);
+    "NETSCAPE2.0".split("").forEach(function (c) { bytes.push(c.charCodeAt(0)); });
+    bytes.push(3, 1, 0, 0, 0);
+
+    frames.forEach(function (frame) {
+      bytes.push(0x21, 0xF9, 4);
+      /* Packed as <reserved:3><disposal:3><userInput:1><transparent:1>.
+         0x09 is restore-to-background with transparency on, so a cut-out
+         sprite does not leave a trail of everywhere it has been; 0x04 is
+         leave-in-place with transparency off, for a solid background. Setting
+         the transparency bit here without meaning it punches holes in the art
+         wherever palette entry zero happens to land. */
+      bytes.push(wantsAlpha ? 0x09 : 0x04);
+      word(options.delay);
+      bytes.push(wantsAlpha ? transparentIndex : 0, 0);
+
+      bytes.push(0x2C);
+      word(0);
+      word(0);
+      word(width);
+      word(height);
+      bytes.push(0);
+
+      var indices = new Uint8Array(width * height);
+
+      for (var p = 0, at = 0; p < frame.data.length; p += 4, at++) {
+        indices[at] = frame.data[p + 3] < 128 && wantsAlpha
+          ? transparentIndex
+          : indexOf(frame.data[p], frame.data[p + 1], frame.data[p + 2]);
+      }
+
+      var minCodeSize = Math.max(2, bitsNeeded);
+      bytes.push(minCodeSize);
+      pushBlocks(bytes, lzwEncode(indices, minCodeSize));
+    });
+
+    bytes.push(0x3B);
+
+    return new Blob([new Uint8Array(bytes)], { type: "image/gif" });
+  }
+
+  /** The animation's frames, drawn from the sources and cropped to fit. */
+  function gifFrames(anim, maxSide, background) {
+    var members = anim.members.filter(function (index) { return !state.frames[index].bounds.blank; });
+    if (!members.length) return null;
+
+    // The union of every frame's art, so the GIF is tight but each frame
+    // still sits where it was drawn relative to the others.
+    var lo = { x: Infinity, y: Infinity };
+    var hi = { x: -Infinity, y: -Infinity };
+
+    members.forEach(function (index) {
+      var b = state.frames[index].bounds;
+      lo.x = Math.min(lo.x, b.x);
+      lo.y = Math.min(lo.y, b.y);
+      hi.x = Math.max(hi.x, b.x + b.w);
+      hi.y = Math.max(hi.y, b.y + b.h);
+    });
+
+    var fullW = Math.max(1, hi.x - lo.x);
+    var fullH = Math.max(1, hi.y - lo.y);
+    var factor = maxSide ? Math.min(1, maxSide / Math.max(fullW, fullH)) : 1;
+
+    var width = Math.max(1, Math.round(fullW * factor));
+    var height = Math.max(1, Math.round(fullH * factor));
+
+    var canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    var paint = canvas.getContext("2d", { willReadFrequently: true });
+
+    var out = members.map(function (index) {
+      var frame = state.frames[index];
+
+      paint.clearRect(0, 0, width, height);
+
+      if (background !== "none") {
+        paint.fillStyle = background;
+        paint.fillRect(0, 0, width, height);
+      }
+
+      paint.imageSmoothingEnabled = factor < 1;
+      paint.drawImage(frame.image, -lo.x * factor, -lo.y * factor,
+        frame.w * factor, frame.h * factor);
+
+      return { data: paint.getImageData(0, 0, width, height).data };
+    });
+
+    return { frames: out, width: width, height: height };
+  }
+
+  $("ss-a-gif").addEventListener("click", function () {
+    var anim = currentAnim();
+
+    if (!anim || !anim.members.length) {
+      toast("Pick an animation first");
+      return;
+    }
+
+    var background = $("ss-a-gif-bg").value;
+    var built = gifFrames(anim, Number($("ss-a-gif-size").value), background);
+
+    if (!built) {
+      toast("Every frame in this animation is blank");
+      return;
+    }
+
+    // GIF counts delays in hundredths, so the frame rate lands on the nearest
+    // one it can hold. 24fps becomes 25, which is the closest it gets.
+    var delay = Math.max(2, Math.round(100 / Math.max(1, anim.fps)));
+
+    var blob = makeGif(built.frames, {
+      width: built.width,
+      height: built.height,
+      delay: delay,
+      transparent: background === "none"
+    });
+
+    var name = (slug(anim.name) || "animation") + ".gif";
+
+    if (!downloads) {
+      saveLocally(name, blob);
+      return;
+    }
+
+    blob.arrayBuffer().then(function (buffer) {
+      downloads.save({ filename: name, data: new Uint8Array(buffer) }).then(
+        function () { toast("Saved " + name); },
+        reportSaveError
+      );
+    });
+  });
 
   $("ss-save-zip").addEventListener("click", function () {
     if (!state.sheet || state.sheet.overflow) {
