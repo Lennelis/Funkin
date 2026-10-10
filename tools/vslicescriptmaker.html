@@ -279,7 +279,7 @@
       <button class="btn" type="button" id="load">Open</button>
       <button class="btn" type="button" id="save">Save blocks</button>
       <button class="btn btn-primary" type="button" id="export">Export .hxc</button>
-      <input class="sr" type="file" id="file" accept=".json,.hxc">
+      <input class="sr" type="file" id="file">
     </div>
   </header>
 
@@ -3802,12 +3802,22 @@ window.__vsmMedia = {
         return;
       }
 
+      /* Loading something that is not a workspace does not throw -- it clears
+         the canvas and reports success, so the check has to happen here, and
+         before any of the fields are written over. */
+      var saved = data.blocks || data;
+
+      if (!saved || !saved.blocks || !Array.isArray(saved.blocks.blocks)) {
+        toast(file.name + " has no blocks in it");
+        return;
+      }
+
       if (data.kind) ui.kind.value = data.kind;
       if (data.className) ui.className.value = data.className;
       if (data.targetId) ui.targetId.value = data.targetId;
 
       try {
-        Blockly.serialization.workspaces.load(data.blocks || data, workspace);
+        Blockly.serialization.workspaces.load(saved, workspace);
         refresh();
         toast("Opened " + file.name);
       } catch (error) {
