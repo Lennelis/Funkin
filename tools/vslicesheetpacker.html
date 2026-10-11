@@ -867,6 +867,14 @@
 
         <div class="divider"></div>
 
+        <div class="pad-row">
+          <button class="btn" id="ss-step-back" type="button" aria-label="Previous frame">&#9664;</button>
+          <button class="btn" id="ss-step-fwd" type="button" aria-label="Next frame">&#9654;</button>
+        </div>
+        <button class="btn" id="ss-step-resume" type="button" hidden>Resume</button>
+
+        <div class="divider"></div>
+
         <button class="btn" id="ss-fit" type="button">Fit</button>
         <div class="pad-row">
           <button class="btn" id="ss-zoom-out" type="button" aria-label="Zoom out">&minus;</button>
@@ -1132,7 +1140,9 @@
     showBounds: true,
     showFrame: true,
 
-    playTime: 0
+    playTime: 0,
+    // An index to sit on while stepping frames by hand, or null when playing.
+    hold: null
   };
 
   // ------------------------------------------------------------- helpers
@@ -2296,7 +2306,7 @@
     }
 
     var sheet = state.sheet;
-    var index = Math.floor(state.playTime * anim.fps) % anim.members.length;
+    var index = playingIndex(anim);
     var frame = state.frames[anim.members[index]];
 
     // Draw it the way the game would: the packed piece, put back at the
@@ -2337,8 +2347,12 @@
       ctx.restore();
     }
 
-    $("ss-readout").textContent = frameNameFor(anim, frame, index) +
-      "  " + (index + 1) + "/" + anim.members.length;
+/* The source file matters as much as the XML name here: this view is
+       how you check that frame seven really is the file you think it is. */
+    $("ss-readout").textContent = frameNameFor(anim, frame, index)
+      + "  \u2190  " + frame.fileName
+      + "   " + (index + 1) + "/" + anim.members.length
+      + (state.hold === null ? "" : "  held");
   }
 
   function note(text) {
@@ -2352,6 +2366,34 @@
     ctx.restore();
   }
 
+  /** The frame on screen: the one being held, or whatever the clock is on. */
+  function playingIndex(anim) {
+    var count = anim.members.length;
+    if (!count) return 0;
+
+    if (state.hold !== null) return Math.max(0, Math.min(count - 1, state.hold));
+
+    return Math.floor(state.playTime * anim.fps) % count;
+  }
+
+  function stepFrame(by) {
+    var anim = currentAnim();
+
+    if (!anim || !anim.members.length) {
+      toast("Pick an animation first");
+      return;
+    }
+
+    var count = anim.members.length;
+    var from = state.hold === null ? playingIndex(anim) : state.hold;
+
+    state.hold = ((from + by) % count + count) % count;
+    state.view = "play";
+
+    syncAll();
+    render();
+  }
+
   var lastTick = 0;
 
   function tick(now) {
@@ -2359,7 +2401,7 @@
 
     // The side preview runs whether or not the big view is on Play, so the
     // clock advances either way.
-    if (currentAnim() || state.view === "play") state.playTime += elapsed;
+    if (state.hold === null && (currentAnim() || state.view === "play")) state.playTime += elapsed;
 
     if (state.view === "play") render();
     renderPreview();
@@ -2379,6 +2421,7 @@
     syncStats();
     syncXml();
     syncReadout();
+    syncStepping();
     render();
   }
 
@@ -2573,6 +2616,13 @@
     var el = document.createElement("span");
     el.innerHTML = label + " <b>" + value + "</b>";
     host.appendChild(el);
+  }
+
+  function syncStepping() {
+    var holding = state.hold !== null;
+
+    $("ss-step-resume").hidden = !holding;
+    $("ss-view-play").classList.toggle("on", state.view === "play" && !holding);
   }
 
   function syncSheetFields() {
@@ -2978,7 +3028,7 @@
     var offsetX = (w - frame.w * factor) / 2;
     var offsetY = (h - frame.h * factor) / 2;
 
-    var index = Math.floor(state.playTime * anim.fps) % anim.members.length;
+    var index = playingIndex(anim);
     var sheet = state.sheet;
 
     var item = sheet && !sheet.overflow
@@ -3107,6 +3157,15 @@
     syncAnimFields();
     syncXml();
     render();
+  });
+
+  $("ss-step-back").addEventListener("click", function () { stepFrame(-1); });
+  $("ss-step-fwd").addEventListener("click", function () { stepFrame(1); });
+
+  $("ss-step-resume").addEventListener("click", function () {
+    state.hold = null;
+    state.playTime = 0;
+    syncAll();
   });
 
   function relabel(anim) {
