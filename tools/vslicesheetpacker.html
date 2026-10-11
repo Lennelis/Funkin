@@ -3579,15 +3579,20 @@
 
   /** The animation's frames, drawn from the sources and cropped to fit. */
   function gifFrames(anim, maxSide, background) {
-    var members = anim.members.filter(function (index) { return !state.frames[index].bounds.blank; });
-    if (!members.length) return null;
+    var members = anim.members;
+    var drawn = members.filter(function (index) { return !state.frames[index].bounds.blank; });
 
-    // The union of every frame's art, so the GIF is tight but each frame
-    // still sits where it was drawn relative to the others.
+    // Nothing to measure if the whole animation is empty.
+    if (!drawn.length) return null;
+
+    /* An empty frame is still a frame: the sheet gives it an entry and the
+       game holds on it for its turn. Dropping it here would make the gif
+       shorter and faster than the animation it came from, so only the crop is
+       measured from the frames that have art in them. */
     var lo = { x: Infinity, y: Infinity };
     var hi = { x: -Infinity, y: -Infinity };
 
-    members.forEach(function (index) {
+    drawn.forEach(function (index) {
       var b = state.frames[index].bounds;
       lo.x = Math.min(lo.x, b.x);
       lo.y = Math.min(lo.y, b.y);
@@ -3618,9 +3623,11 @@
         paint.fillRect(0, 0, width, height);
       }
 
-      paint.imageSmoothingEnabled = factor < 1;
-      paint.drawImage(frame.image, -lo.x * factor, -lo.y * factor,
-        frame.w * factor, frame.h * factor);
+      if (!frame.bounds.blank) {
+        paint.imageSmoothingEnabled = factor < 1;
+        paint.drawImage(frame.image, -lo.x * factor, -lo.y * factor,
+          frame.w * factor, frame.h * factor);
+      }
 
       return { data: paint.getImageData(0, 0, width, height).data };
     });
