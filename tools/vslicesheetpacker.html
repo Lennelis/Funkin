@@ -834,6 +834,15 @@
             <option value="none">one pile, sort by hand</option>
           </select>
         </div>
+        <div class="field">
+          <label for="ss-frameorder">frame order</label>
+          <select id="ss-frameorder">
+            <option value="name">by the number in the name</option>
+            <option value="loaded">by the order they came in</option>
+          </select>
+        </div>
+        <p class="hint" id="ss-frameorder-note"></p>
+
         <p class="hint" id="ss-grouping-note">Frames group into animations by their name:
           <code>bf idle dance0000.png</code> and <code>bf idle dance0001.png</code> become one
           animation called <code>bf idle dance</code>.</p>
@@ -1127,6 +1136,7 @@
     padding: 1,
     scale: 100,
     trim: true,
+    frameOrder: "name",
     frameBox: "file",
     powerOfTwo: false,
 
@@ -1351,6 +1361,63 @@
    * A PNG sequence is named by prefix and a counter, so the trailing digits
    * are the number and everything before them is the animation.
    */
+  /**
+   * How to put an animation's frames in order.
+   *
+   * The rule is chosen once for the whole animation rather than per pair of
+   * frames. Deciding per pair -- by number when both have one, by name when
+   * either does not -- is not a consistent order: it can say a < b, b < c and
+   * c < a all at once, and a sort handed a comparator like that is free to
+   * return the frames in any arrangement at all.
+   */
+  function orderFor(members) {
+    if (state.frameOrder === "loaded") {
+      // state.frames is built in the order the files arrived, so their own
+      // positions already are that order.
+      return function (a, b) { return a - b; };
+    }
+
+    var numbered = members.every(function (index) {
+      var frame = state.frames[index];
+      return frame && frame.index !== null;
+    });
+
+    if (numbered) {
+      return function (a, b) {
+        var gap = state.frames[a].index - state.frames[b].index;
+        return gap !== 0 ? gap : a - b;
+      };
+    }
+
+    // No usable numbers, so fall back to the names -- compared the way a
+    // person reads them, with runs of digits as values, so frame9 lands
+    // before frame10 rather than after it.
+    return function (a, b) {
+      var by = natural(state.frames[a].fileName, state.frames[b].fileName);
+      return by !== 0 ? by : a - b;
+    };
+  }
+
+  /** Compare names with any digits in them read as numbers. */
+  function natural(left, right) {
+    var a = String(left).match(/\d+|\D+/g) || [];
+    var b = String(right).match(/\d+|\D+/g) || [];
+
+    for (var i = 0; i < Math.min(a.length, b.length); i++) {
+      var digitsA = /^\d/.test(a[i]);
+      var digitsB = /^\d/.test(b[i]);
+
+      if (digitsA && digitsB) {
+        var gap = parseInt(a[i], 10) - parseInt(b[i], 10);
+        if (gap !== 0) return gap;
+      } else if (a[i] !== b[i]) {
+        return a[i] < b[i] ? -1 : 1;
+      }
+    }
+
+    return a.length - b.length;
+  }
+
   function splitName(fileName) {
     var base = String(fileName)
       .replace(/^.*[\\/]/, "")
@@ -1430,16 +1497,7 @@
         anim.fps = kept.fps;
       }
 
-      anim.members.sort(function (a, b) {
-        var left = state.frames[a];
-        var right = state.frames[b];
-
-        if (left.index === null || right.index === null) {
-          return left.fileName.localeCompare(right.fileName);
-        }
-
-        return left.index - right.index;
-      });
+      anim.members.sort(orderFor(anim.members));
 
       // Frames pulled together by hand can carry the same number — two files
       // that were both 0000 of something. Numbering them by their place in the
@@ -2634,6 +2692,14 @@
     $("ss-trim").checked = state.trim;
     $("ss-pot").checked = state.powerOfTwo;
     $("ss-framebox").value = state.frameBox;
+    $("ss-frameorder").value = state.frameOrder;
+
+    $("ss-frameorder-note").textContent = state.frameOrder === "name"
+      ? "Frames run in the order of the number at the end of their file names, so frame9 comes "
+        + "before frame10. If a name has no number on the end, the whole animation falls back to "
+        + "reading the names instead."
+      : "Frames run in the order the files arrived, whatever they are called. Use this when the "
+        + "names are not telling the truth about the order.";
 
     $("ss-framebox-note").innerHTML = state.frameBox === "file"
       ? "Offsets are measured from each file's own canvas. Right when every frame was drawn at " +
@@ -3126,6 +3192,17 @@
   bind("ss-grouping", function (value) {
     state.grouping = value === "none" ? "none" : "name";
 
+    regroup();
+    repack();
+    syncAll();
+    save();
+  });
+
+  bind("ss-frameorder", function (value) {
+    state.frameOrder = value === "loaded" ? "loaded" : "name";
+
+    // The order lives in the grouping, so the frames have to be regrouped
+    // before anything downstream sees it.
     regroup();
     repack();
     syncAll();
