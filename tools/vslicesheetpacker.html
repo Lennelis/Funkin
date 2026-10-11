@@ -960,6 +960,37 @@
             one fully transparent colour, so soft edges come out ragged — pick a background if the
             edges matter.</p>
 
+          <div class="divider"></div>
+
+          <div class="field">
+            <label for="ss-bpm">bpm</label>
+            <input type="number" id="ss-bpm" step="1" min="1" max="999" value="150">
+          </div>
+
+          <div class="field">
+            <label for="ss-dance-every">bop every</label>
+            <select id="ss-dance-every">
+              <option value="1">1 beat</option>
+              <option value="2" selected>2 beats</option>
+              <option value="4">4 beats</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="ss-song-offset">offset ms</label>
+            <input type="number" id="ss-song-offset" step="10" value="0">
+          </div>
+
+          <div class="btn-row">
+            <button class="btn" type="button" id="ss-song-load">Load a song</button>
+            <button class="btn btn-primary" type="button" id="ss-song-play" disabled>Play song</button>
+          </div>
+          <input type="file" id="ss-song-input" class="sr">
+
+          <p class="hint" id="ss-song-note">Drop in a song and the animation runs once on every
+            beat, holding on its last frame until the next one — the way an idle behaves in game.
+            Nudge the offset if the first beat does not land where the song starts.</p>
+
           <div class="anim-preview">
             <canvas id="ss-a-preview" width="360" height="240"
               aria-label="The selected animation, looping"></canvas>
@@ -1151,6 +1182,9 @@
     showFrame: true,
 
     playTime: 0,
+    bpm: 150,
+    danceEvery: 2,
+    songOffset: 0,
     // An index to sit on while stepping frames by hand, or null when playing.
     hold: null
   };
@@ -1688,7 +1722,8 @@
 
       if (/\.(png|jpe?g)$/.test(lower)) images.push(file);
       else if (lower.endsWith(".zip")) archives.push(file);
-      else toast("Skipped " + file.name + " — needs .png or .zip");
+      else if (/\.(ogg|mp3|wav|m4a)$/.test(lower)) loadSong(file);
+      else toast("Skipped " + file.name + " — needs .png, .zip or a song");
     });
 
     if (images.length) ingestImages(images);
@@ -2410,7 +2445,11 @@
     $("ss-readout").textContent = frameNameFor(anim, frame, index)
       + "  \u2190  " + frame.fileName
       + "   " + (index + 1) + "/" + anim.members.length
-      + (state.hold === null ? "" : "  held");
+      + (state.hold === null ? "" : "  held")
+      + (songBopping()
+        ? "  beat " + (Math.floor(Math.max(0, song.audio.currentTime - state.songOffset / 1000)
+            / (60 / state.bpm)) + 1)
+        : "");
   }
 
   function note(text) {
@@ -2424,6 +2463,51 @@
     ctx.restore();
   }
 
+  // ------------------------------------------------------------------ song
+
+  var song = { audio: null, url: null, name: "" };
+
+  function loadSong(file) {
+    if (song.url) URL.revokeObjectURL(song.url);
+    if (song.audio) song.audio.pause();
+
+    song.url = URL.createObjectURL(file);
+    song.name = file.name;
+
+    song.audio = new Audio(song.url);
+    song.audio.loop = true;
+
+    song.audio.addEventListener("error", function () {
+      toast("Could not play " + file.name);
+      song.audio = null;
+      syncSong();
+    });
+
+    song.audio.addEventListener("canplay", function () { syncSong(); }, { once: true });
+
+    toast("Loaded " + file.name);
+    syncSong();
+  }
+
+  function songBopping() {
+    return !!(song.audio && !song.audio.paused && state.bpm > 0);
+  }
+
+  /**
+   * Where the animation is within the current bop. A character's idle is not
+   * a loop: it runs once when the beat lands and sits on its last frame until
+   * the next one, so this counts from the beat rather than from the clock.
+   */
+  function bopFrame(anim) {
+    var beatLength = 60 / state.bpm;
+    var cycle = Math.max(1, state.danceEvery) * beatLength;
+    var at = song.audio.currentTime - state.songOffset / 1000;
+
+    if (at < 0) return 0;
+
+    return Math.floor((at % cycle) * anim.fps);
+  }
+
   /** The frame on screen: the one being held, or whatever the clock is on. */
   function playingIndex(anim) {
     var count = anim.members.length;
@@ -2431,7 +2515,28 @@
 
     if (state.hold !== null) return Math.max(0, Math.min(count - 1, state.hold));
 
+    // Holding on the last frame is the point: that is what an idle looks like
+    // between beats, and a loop here would read as a much faster animation.
+    if (songBopping()) return Math.min(count - 1, bopFrame(anim));
+
     return Math.floor(state.playTime * anim.fps) % count;
+  }
+
+  function syncSong() {
+    var ready = !!song.audio;
+    var playing = songBopping();
+
+    $("ss-song-play").disabled = !ready;
+    $("ss-song-play").textContent = playing ? "Stop song" : "Play song";
+    $("ss-song-load").textContent = ready ? "Change song" : "Load a song";
+
+    $("ss-song-note").textContent = ready
+      ? song.name + " — the animation runs once on every "
+        + (state.danceEvery === 1 ? "beat" : state.danceEvery + " beats")
+        + ", holding on its last frame until the next. Nudge the offset if the beat is early or late."
+      : "Drop in a song and the animation runs once on every beat, holding on its last frame "
+        + "until the next one — the way an idle behaves in game. Nudge the offset if the first "
+        + "beat does not land where the song starts.";
   }
 
   function stepFrame(by) {
@@ -2459,10 +2564,14 @@
 
     // The side preview runs whether or not the big view is on Play, so the
     // clock advances either way.
-    if (state.hold === null && (currentAnim() || state.view === "play")) state.playTime += elapsed;
+    if (state.hold === null && !songBopping() && (currentAnim() || state.view === "play")) {
+      state.playTime += elapsed;
+    }
 
     if (state.view === "play") render();
     renderPreview();
+
+    if (songBopping()) syncReadout();
 
     lastTick = now;
     requestAnimationFrame(tick);
@@ -2693,6 +2802,9 @@
     $("ss-pot").checked = state.powerOfTwo;
     $("ss-framebox").value = state.frameBox;
     $("ss-frameorder").value = state.frameOrder;
+    $("ss-bpm").value = state.bpm;
+    $("ss-dance-every").value = String(state.danceEvery);
+    $("ss-song-offset").value = state.songOffset;
 
     $("ss-frameorder-note").textContent = state.frameOrder === "name"
       ? "Frames run in the order of the number at the end of their file names, so frame9 comes "
@@ -3234,6 +3346,48 @@
     syncAnimFields();
     syncXml();
     render();
+  });
+
+  $("ss-song-load").addEventListener("click", function () { $("ss-song-input").click(); });
+
+  $("ss-song-input").addEventListener("change", function () {
+    var file = this.files && this.files[0];
+    this.value = "";
+    if (file) loadSong(file);
+  });
+
+  $("ss-song-play").addEventListener("click", function () {
+    if (!song.audio) return;
+
+    if (songBopping()) {
+      song.audio.pause();
+    } else {
+      // Stepping and bopping are two ways to drive the same preview, so
+      // starting one lets the other go.
+      state.hold = null;
+      state.view = "play";
+      song.audio.play().catch(function () { toast("The browser would not start the song"); });
+    }
+
+    syncAll();
+    syncSong();
+  });
+
+  bind("ss-bpm", function (value) {
+    state.bpm = Math.max(1, Math.min(999, Math.round(num(value, 150))));
+    syncSong();
+    save();
+  });
+
+  bind("ss-dance-every", function (value) {
+    state.danceEvery = Math.max(1, Math.round(num(value, 2)));
+    syncSong();
+    save();
+  });
+
+  bind("ss-song-offset", function (value) {
+    state.songOffset = Math.round(num(value, 0));
+    save();
   });
 
   $("ss-step-back").addEventListener("click", function () { stepFrame(-1); });
