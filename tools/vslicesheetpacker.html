@@ -1451,6 +1451,18 @@
        would let it sort the order straight back out again. */
     if (anim.indices) return true;
 
+    /* Original numbers are only worth keeping when they already read as this
+       animation's own run: 0, 1, 2 and up with nothing missing. Anything else
+       -- counting from one, a gap where a frame was deleted, numbers carried
+       over from a longer sequence -- is about the files, not about the
+       animation, and is better off counted again from the start. */
+    var contiguous = anim.members.every(function (index, position) {
+      var frame = state.frames[index];
+      return frame && frame.index === position;
+    });
+
+    if (!contiguous) return true;
+
     return anim.members.some(function (index) {
       var frame = state.frames[index];
 
