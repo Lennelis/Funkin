@@ -963,6 +963,16 @@
             <code>&lt;name&gt;.png</code> and <code>&lt;name&gt;.xml</code>.</p>
 
           <div class="field">
+            <label for="ss-framebox">frame box</label>
+            <select id="ss-framebox">
+              <option value="file">each file's own canvas</option>
+              <option value="sheet">fit everything</option>
+              <option value="anim">fit each animation</option>
+            </select>
+          </div>
+          <p class="hint" id="ss-framebox-note"></p>
+
+          <div class="field">
             <label for="ss-max">max size</label>
             <select id="ss-max">
               <option value="2048">2048</option>
@@ -1109,6 +1119,7 @@
     padding: 1,
     scale: 100,
     trim: true,
+    frameBox: "file",
     powerOfTwo: false,
 
     // The packing result: null until there is something to pack.
@@ -1843,14 +1854,85 @@
    * trim and the scale are applied. Frames appear in animation order so the
    * XML reads in the order the artist drew them.
    */
+  /**
+   * The rectangle every frame's offsets are measured against.
+   *
+   * By default that is each file's own canvas, which is right when the frames
+   * were all drawn at one size. The other two work it out instead, from the
+   * union of where the art actually reaches -- not from a single frame, since
+   * one frame may stretch furthest left and another furthest right, and
+   * either on its own would clip the other.
+   *
+   * @return a map from frame index to { x, y, w, h } in source pixels
+   */
+  function frameBoxes() {
+    var boxes = {};
+
+    if (state.frameBox === "file") {
+      state.frames.forEach(function (frame, index) {
+        boxes[index] = { x: 0, y: 0, w: frame.w, h: frame.h };
+      });
+      return boxes;
+    }
+
+    function union(members) {
+      var lo = { x: Infinity, y: Infinity };
+      var hi = { x: -Infinity, y: -Infinity };
+      var found = false;
+
+      members.forEach(function (index) {
+        var frame = state.frames[index];
+        if (!frame || frame.bounds.blank) return;
+
+        found = true;
+        lo.x = Math.min(lo.x, frame.bounds.x);
+        lo.y = Math.min(lo.y, frame.bounds.y);
+        hi.x = Math.max(hi.x, frame.bounds.x + frame.bounds.w);
+        hi.y = Math.max(hi.y, frame.bounds.y + frame.bounds.h);
+      });
+
+      // An animation of nothing but empty frames has no art to measure, so it
+      // keeps the canvas it came on.
+      if (!found) {
+        var first = state.frames[members[0]];
+        return { x: 0, y: 0, w: first ? first.w : 1, h: first ? first.h : 1 };
+      }
+
+      return { x: lo.x, y: lo.y, w: Math.max(1, hi.x - lo.x), h: Math.max(1, hi.y - lo.y) };
+    }
+
+    if (state.frameBox === "sheet") {
+      var everything = [];
+      state.anims.forEach(function (anim) { everything = everything.concat(anim.members); });
+
+      var one = union(everything);
+      everything.forEach(function (index) { boxes[index] = one; });
+      return boxes;
+    }
+
+    state.anims.forEach(function (anim) {
+      var box = union(anim.members);
+      anim.members.forEach(function (index) { boxes[index] = box; });
+    });
+
+    return boxes;
+  }
+
+  /**
+   * Every frame that will go on the sheet, with the size it takes once the
+   * trim and the scale are applied. Frames appear in animation order so the
+   * XML reads in the order the artist drew them.
+   */
   function packList() {
     var factor = Math.max(0.05, state.scale / 100);
+    var boxes = frameBoxes();
     var list = [];
 
     state.anims.forEach(function (anim) {
       anim.members.forEach(function (frameIndex, position) {
         var frame = state.frames[frameIndex];
         var bounds = state.trim ? frame.bounds : { x: 0, y: 0, w: frame.w, h: frame.h, blank: false };
+        var box = boxes[frameIndex] || { x: 0, y: 0, w: frame.w, h: frame.h };
 
         // A blank frame still needs an entry, so it keeps a single pixel.
         var w = bounds.blank ? 1 : Math.max(1, Math.round(bounds.w * factor));
@@ -1865,11 +1947,11 @@
           blank: bounds.blank,
           w: w,
           h: h,
-          // The untrimmed size and where inside it this piece sits.
-          frameW: Math.max(1, Math.round(frame.w * factor)),
-          frameH: Math.max(1, Math.round(frame.h * factor)),
-          frameX: bounds.blank ? 0 : -Math.round(bounds.x * factor),
-          frameY: bounds.blank ? 0 : -Math.round(bounds.y * factor)
+          // The box, and where inside it this piece sits.
+          frameW: Math.max(1, Math.round(box.w * factor)),
+          frameH: Math.max(1, Math.round(box.h * factor)),
+          frameX: bounds.blank ? 0 : -Math.round((bounds.x - box.x) * factor),
+          frameY: bounds.blank ? 0 : -Math.round((bounds.y - box.y) * factor)
         });
       });
     });
@@ -2205,12 +2287,6 @@
     var index = Math.floor(state.playTime * anim.fps) % anim.members.length;
     var frame = state.frames[anim.members[index]];
 
-    var origin = toScreen(0, 0);
-    var fw = frame.w * state.zoom;
-    var fh = frame.h * state.zoom;
-
-    drawChecks(origin.x, origin.y, fw, fh);
-
     // Draw it the way the game would: the packed piece, put back at the
     // offset the XML records. If that lands wrong, the animation will jitter.
     var item = sheet && !sheet.overflow
@@ -2218,6 +2294,16 @@
           return entry.anim === anim && entry.position === index;
         })[0]
       : null;
+
+    var scale = Math.max(0.05, state.scale / 100);
+    var origin = toScreen(0, 0);
+
+    // The outline is the frame box, which is not the file's canvas once the
+    // box is being worked out from the art instead.
+    var fw = (item ? item.frameW / scale : frame.w) * state.zoom;
+    var fh = (item ? item.frameH / scale : frame.h) * state.zoom;
+
+    drawChecks(origin.x, origin.y, fw, fh);
 
     if (item && !item.blank) {
       var factor = Math.max(0.05, state.scale / 100);
@@ -2414,6 +2500,10 @@
 
     var kinds = Object.keys(sizes);
     var canvasNote = $("ss-a-canvas-note");
+
+    /* Still worth saying under a worked-out box. That evens up the box size
+       but keeps every frame where it sits relative to the others, so art
+       that was padded differently stays just as misaligned. */
     canvasNote.hidden = kinds.length < 2;
 
     if (kinds.length > 1) {
@@ -2481,6 +2571,21 @@
     $("ss-scale").value = state.scale;
     $("ss-trim").checked = state.trim;
     $("ss-pot").checked = state.powerOfTwo;
+    $("ss-framebox").value = state.frameBox;
+
+    $("ss-framebox-note").innerHTML = state.frameBox === "file"
+      ? "Offsets are measured from each file's own canvas. Right when every frame was drawn at " +
+        "one size, and the only option that leaves the frames exactly where the artist put them."
+      : state.frameBox === "sheet"
+        ? "One box for the whole sheet, sized to how far the art reaches across every frame. " +
+          "Every frame keeps its position relative to the others, so this will not repair files " +
+          "that were padded or cropped differently — it only gives them all one box, and a " +
+          "tighter one. The whole animation shifts inside it, so offsets tuned against the old " +
+          "canvas move by the same amount."
+        : "A box per animation. Tightest of the three, but each animation then has a " +
+          "<b>different</b> box, and the game positions a frame by its box — so a character can " +
+          "shift as it changes animation. Safe for a sheet holding one animation; " +
+          "<b>fit everything</b> is the safer choice otherwise.";
 
     $("ss-trim-note").innerHTML = state.trim
       ? "Trimming cuts the transparent border off every frame and records where it was, so the game " +
@@ -2945,6 +3050,10 @@
       save();
     });
   }
+
+  bindPacking("ss-framebox", function (value) {
+    state.frameBox = value;
+  });
 
   bind("ss-name", function (value) {
     state.name = value;
