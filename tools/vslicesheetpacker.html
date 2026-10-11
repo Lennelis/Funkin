@@ -904,6 +904,8 @@
             <label for="ss-a-indices">indices</label>
             <input type="text" id="ss-a-indices" spellcheck="false" placeholder="0-23">
           </div>
+          <p class="problem" id="ss-a-canvas-note" hidden></p>
+
           <p class="hint" id="ss-a-indices-note">Which of this animation's frames to use, and in
             what order. <code>0-5</code> for a run, <code>0, 2, 4</code> to pick, <code>5-0</code>
             to go backwards. Empty means all of them.</p>
@@ -2398,6 +2400,30 @@
     }
 
     $("ss-a-indices").placeholder = "0-" + Math.max(0, animFull(anim).length - 1);
+
+    /* Every offset in the XML is measured from its own frame's top-left, so
+       frames only line up if they were all drawn on the same canvas. Mixed
+       sizes have no shared origin and the odd ones out land somewhere else --
+       in the preview, in a gif, and in the game. */
+    var sizes = {};
+
+    anim.members.forEach(function (index) {
+      var frame = state.frames[index];
+      sizes[frame.w + "x" + frame.h] = (sizes[frame.w + "x" + frame.h] || 0) + 1;
+    });
+
+    var kinds = Object.keys(sizes);
+    var canvasNote = $("ss-a-canvas-note");
+    canvasNote.hidden = kinds.length < 2;
+
+    if (kinds.length > 1) {
+      var worst = kinds.slice().sort(function (a, b) { return sizes[b] - sizes[a]; });
+
+      canvasNote.textContent = "These frames were not all drawn on the same canvas — "
+        + worst.map(function (size) { return sizes[size] + " at " + size; }).join(", ")
+        + ". Offsets are measured from each frame's own corner, so the odd ones out will sit "
+        + "wrong here and in the game. Re-export them all at one size.";
+    }
 
     var clash = state.anims.filter(function (other) { return other.name === anim.name; }).length > 1;
 
